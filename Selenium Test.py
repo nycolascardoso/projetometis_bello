@@ -1,32 +1,40 @@
 from selenium import webdriver
+from selenium.webdriver.common.by import By
 from selenium.webdriver.edge.service import Service
 from selenium.webdriver.edge.options import Options
 import time
 
-driver = None  # Inicialize o driver como None para evitar NameError no finally
+# Configuração do EdgeDriver
+service = Service(executable_path="C:/Users/ngcar/edgedriver_win64/msedgedriver.exe")
+options = Options()
+options.add_argument("start-maximized")  # Abrir navegador em tela cheia
 
-try:
-    # Configurar o caminho do EdgeDriver
-    service = Service(executable_path="C:/Users/ngcar/edgedriver_win64/msedgedriver.exe")
+driver = webdriver.Edge(service=service, options=options)
 
-    # Configurar opções do Edge
-    options = Options()
-    options.add_argument("start-maximized")  # Abrir o navegador em tela cheia
+# Acessar o site
+driver.get("https://nfse1.publica.inf.br/cacador_eiptu/")
+time.sleep(2)  # Espera para o site carregar
 
-    # Inicializar o driver
-    driver = webdriver.Edge(service=service, options=options)
+# Selecionar "CNPJ proprietário"
+seletor = driver.find_element(By.ID, "cbLogin")
+seletor.send_keys("CNPJ proprietário")  # Simula a escolha da opção
 
-    # Testar o acesso a um site válido
-    driver.get("https://www.example.com")
-    print("Título da página:", driver.title)
+# Inserir o código no campo ao lado
+campo = driver.find_element(By.XPATH, '//*[@id="inscri"]')
+driver.execute_script("arguments[0].value = arguments[1];", campo, "08958952000124")
 
-    # Manter o navegador aberto por 15 segundos para observação
-    time.sleep(15)
+# Clicar no botão "Login"
+botao_login = driver.find_element(By.XPATH, '//*[@id="form_index_proprietario"]/table[2]/tbody/tr/td/input[1]')
+botao_login.click()
 
-except Exception as e:
-    print("Erro detectado:", e)
+# Esperar a página carregar
+time.sleep(3)
 
-finally:
-    # Verificar se o driver foi inicializado antes de tentar fechar
-    if driver is not None:
-        driver.quit()
+# Navegar diretamente para o link
+driver.get("https://nfse1.publica.inf.br/cacador_eiptu/jsp/debito/gerenciamento/index.jsp#")
+
+time.sleep(5)
+
+# Fecha o navegador
+#driver.quit()
+
