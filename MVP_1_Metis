@@ -1,0 +1,142 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.edge.service import Service
+from selenium.webdriver.edge.options import Options
+import time
+import openpyxl
+import csv
+import re
+from datetime import datetime
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+
+
+# Caminho da planilha e driver
+PLANILHA_PATH = 'C:/Users/ngcar/OneDrive/Documentos/Python Scripts/Projeto Metis/Banco_de_Imoveis.xlsx'
+DRIVER_PATH = "C:/Users/ngcar/edgedriver_win64/msedgedriver.exe"
+
+# Carregar a planilha
+planilha = openpyxl.load_workbook(PLANILHA_PATH)
+
+# Selecionar as abas
+aba_consultar = planilha['Consultar']
+aba_links = planilha['Link de Imóveis']
+aba_log = planilha['Log de Execução']
+
+# Configuração do EdgeDriver
+service = Service(executable_path=DRIVER_PATH)
+options = Options()
+options.add_argument("start-maximized")
+
+driver = webdriver.Edge(service=service, options=options)
+
+def gerar_nome_arquivo(cnpj_cpf):
+    """Gera um nome de arquivo seguro removendo caracteres inválidos."""
+    return re.sub(r'[\\/:*?"<>|]', '_', cnpj_cpf)
+
+def registrar_log(cnpj_cpf, tipo_doc, status, mensagem=""):
+    """Registra o log da execução na aba 3."""
+    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    aba_log.append([timestamp, cnpj_cpf, tipo_doc, status, mensagem])
+    planilha.save(PLANILHA_PATH)
+
+def salvar_links(cnpj_cpf, links):
+    """Registra os links na aba 2."""
+    for link in links:
+        aba_links.append([cnpj_cpf, link])
+    planilha.save(PLANILHA_PATH)
+
+def extrair_links_imoveis():
+    try:
+        # Esperar a tabela ser carregada
+        tabela = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CLASS_NAME, 'tableDados'))
+        )
+
+        linhas = tabela.find_elements(By.XPATH, './/tbody/tr')
+        links_imoveis = []
+
+        for linha in linhas:
+            try:
+                link_elemento = linha.find_element(By.XPATH, './/td[1]/a')
+                link_url = link_elemento.get_attribute('href')
+                codigo_imovel = linha.find_element(By.XPATH, './/td[2]').text.strip()
+                inscricao_imobiliaria = linha.find_element(By.XPATH, './/td[3]').text.strip()
+                links_imoveis.append({
+                    "link": link_url,
+                    "codigo_imovel": codigo_imovel,
+                    "inscricao_imobiliaria": inscricao_imobiliaria
+                })
+            except Exception as e:
+                print(f"Erro ao capturar link: {e}")
+                continue
+
+        return links_imoveis
+    except Exception as e:
+        print(f"Erro ao localizar tabela de imóveis: {e}")
+        return []
+
+
+def consultar_imovel(cnpj_cpf, tipo_doc):
+    """Consulta os imóveis e salva os dados coletados."""
+    try:
+        driver.get("https://nfse1.publica.inf.br/cacador_eiptu/")
+        time.sleep(2)
+
+        seletor = driver.find_element(By.ID, "cbLogin")
+        seletor.send_keys(tipo_doc)
+
+        campo = driver.find_element(By.XPATH, '//*[@id="inscri"]')
+        driver.execute_script("arguments[0].value = arguments[1];", campo, cnpj_cpf)
+
+        botao_login = driver.find_element(By.XPATH, '//*[@id="form_index_proprietario"]/table[2]/tbody/tr/td/input[1]')
+        botao_login.click()
+        time.sleep(3)
+
+        driver.get("https://nfse1.publica.inf.br/cacador_eiptu/jsp/debito/gerenciamento/index.jsp#")
+        time.sleep(2)
+
+        links = extrair_links_imoveis()
+        salvar_links(cnpj_cpf, [link['link'] for link in links])
+
+        dados = []
+        while True:
+            tabela = driver.find_element(By.XPATH, '//*[@id="frm_lista_debitos"]//table')
+            linhas = tabela.find_elements(By.XPATH, './/tbody/tr')
+
+            for linha in linhas:
+                celulas = linha.find_elements(By.TAG_NAME, 'td')
+                dados.append([celula.text.strip() for celula in celulas])
+
+            try:
+                botao_proximo = driver.find_element(By.XPATH, '//a[text()="Próximo"]')
+                botao_proximo.click()
+                time.sleep(2)
+            except:
+                break
+
+        nome_arquivo = f'dados_{gerar_nome_arquivo(cnpj_cpf)}.csv'
+        with open(nome_arquivo, 'w', newline='', encoding='utf-8-sig') as file:
+            writer = csv.writer(file, delimiter=';')
+            header = [
+                "Ano", "Descrição", "Nº parc.", "Sub. parc.", "Tipo Débito", "Dt. vcto.",
+                "Vlr. parcela", "Desconto", "Vlr. juros", "Vlr. multa", "Vlr. correção",
+                "Vlr. honorário", "Vlr. corrigido", "Pagamento", "Ações"
+            ]
+            writer.writerow(header)
+            writer.writerows(dados)
+
+        registrar_log(cnpj_cpf, tipo_doc, "Sucesso", f"Dados salvos em {nome_arquivo}")
+
+    except Exception as e:
+        registrar_log(cnpj_cpf, tipo_doc, "Erro", str(e))
+
+for linha in aba_consultar.iter_rows(min_row=2, min_col=1, max_col=4, values_only=True):
+    cnpj_cpf, _, _, tipo_doc = linha
+
+    if cnpj_cpf and tipo_doc:
+        consultar_imovel(cnpj_cpf, tipo_doc)
+
+driver.quit()
+
+
