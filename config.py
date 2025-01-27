@@ -4,53 +4,22 @@ PLANILHA_PATH = 'C:/Users/ngcar/OneDrive/Documentos/Python Scripts/Projeto Metis
 # Caminho do driver
 DRIVER_PATH = "C:/Users/ngcar/edgedriver_win64/msedgedriver.exe"
 
-# URLs
-URLS = {
-    "login": "https://nfse1.publica.inf.br/cacador_eiptu/",
-    "gerenciamento": "https://nfse1.publica.inf.br/cacador_eiptu/jsp/debito/gerenciamento/index.jsp#",
-    "home": "https://nfse1.publica.inf.br/cacador_eiptu/jsp/portal/home.jsp"
-}
+# URL de login
+URL_LOGIN = "https://nfse1.publica.inf.br/cacador_eiptu/"
 
-# Seletores HTML
+# Seletores
 SELECTORS = {
-    # Tela de login
-    "login_selector": "cbLogin",
-    "input_campo": '//*[@id="inscri"]',
-    "botao_login": '//*[@id="form_index_proprietario"]/table[2]/tbody/tr/td/input[1]',
-
-    # Tela de gerenciamento
-    "tabela_debitos": '//*[@id="frm_lista_debitos"]//table',
-    "botao_proximo": '//a[text()="Próximo"]',
-
-    # Tela de imóveis
-    "tabela_imoveis": 'tableDados',
-    "coluna_link": './/td[1]/a',
-    "coluna_codigo_imovel": './/td[2]',
-    "coluna_inscricao_imobiliaria": './/td[3]',
-    "coluna_logradouro": './/td[4]',
-    "coluna_complemento": './/td[5]',
-    "coluna_bairro": './/td[6]',
-    "coluna_situacao": './/td[7]',
-
-    # Dropdown do cabeçalho
-    "menu_valores_iptu": '//a[text()="Valores IPTU"]',
-    "dropdown_consultar_emitir": '//a[text()="Consultar/Emitir débitos de IPTU"]'
+    "login_selector": "cbLogin",  # Seletor do tipo de documento
+    "input_campo": '//*[@id="inscri"]',  # Campo de entrada para CNPJ/CPF
+    "botao_login": '//*[@id="form_index_proprietario"]/table[2]/tbody/tr/td/input[1]',  # Botão "Login"
+    "tabela_imoveis": '/html/body/div[1]/div[1]/div[2]/form/table',  # XPATH completo da tabela de imóveis
+    "tabela_linhas": './/tbody/tr',  # Linhas da tabela
+    "tabela_celula_link": './/td[1]/a',  # Link do imóvel na tabela
+    "tabela_celula_codigo": './/td[2]',  # Código do imóvel
+    "tabela_celula_inscricao": './/td[3]',  # Inscrição imobiliária
+    "tabela_celula_logradouro": './/td[4]',  # Logradouro
+    "tabela_celula_complemento": './/td[5]',  # Complemento
+    "tabela_celula_bairro": './/td[6]',  # Bairro
+    "tabela_celula_situacao": './/td[7]',  # Situação
+    "mensagem_erro": "/html/body/div/div[1]/div[2]/div[1]"  # XPath da mensagem de erro
 }
-
-# Timeout padrão para espera explícita
-DEFAULT_TIMEOUT = 10
-
-# Configuração do WebDriver
-from selenium import webdriver
-from selenium.webdriver.edge.service import Service
-from selenium.webdriver.edge.options import Options
-
-def iniciar_driver():
-    """
-    Configura e inicia o WebDriver do Selenium para Microsoft Edge.
-    """
-    service = Service(executable_path=DRIVER_PATH)
-    options = Options()
-    options.add_argument("start-maximized")
-    driver = webdriver.Edge(service=service, options=options)
-    return driver

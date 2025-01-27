@@ -2,12 +2,13 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from config import DRIVER_PATH, SELECTORS, URL_LOGIN
+from datetime import datetime
 import time
-from config import DRIVER_PATH, SELECTORS, URLS
-from utils import registrar_log, salvar_links, salvar_dados_banco
 
-# Configuração do WebDriver
+
 def iniciar_driver():
+    """Inicia o driver do Selenium."""
     from selenium.webdriver.edge.service import Service
     from selenium.webdriver.edge.options import Options
 
@@ -16,97 +17,101 @@ def iniciar_driver():
     options.add_argument("start-maximized")
     return webdriver.Edge(service=service, options=options)
 
-# Função para extrair links de imóveis
-def extrair_links_imoveis(driver):
-    """
-    Extrai os links de todos os imóveis disponíveis na tabela.
-    """
-    links_imoveis = []
+def realizar_login(driver, cnpj_cpf, tipo_doc):
+    """Realiza o login na tela inicial e verifica se foi bem-sucedido."""
     try:
-        tabela = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CLASS_NAME, SELECTORS["tabela_imoveis"]))
-        )
-        linhas = tabela.find_elements(By.XPATH, './/tbody/tr')
-
-        for linha in linhas:
-            try:
-                link_elemento = linha.find_element(By.XPATH, SELECTORS["coluna_link"])
-                link_url = link_elemento.get_attribute('href')
-                codigo_imovel = linha.find_element(By.XPATH, SELECTORS["coluna_codigo_imovel"]).text.strip()
-                inscricao_imobiliaria = linha.find_element(By.XPATH, SELECTORS["coluna_inscricao_imobiliaria"]).text.strip()
-                links_imoveis.append({
-                    "link": link_url,
-                    "codigo_imovel": codigo_imovel,
-                    "inscricao_imobiliaria": inscricao_imobiliaria
-                })
-            except Exception as e:
-                print(f"Erro ao capturar link: {e}")
-                continue
-    except Exception as e:
-        print(f"Erro ao localizar tabela de imóveis: {e}")
-    return links_imoveis
-
-# Função para processar débitos de um imóvel
-def processar_debitos(driver, cnpj_cpf, codigo_imovel, aba_banco_dados):
-    """
-    Extrai a tabela de débitos de um imóvel e salva os dados na aba 'Banco de Dados'.
-    """
-    try:
-        # Aguarda a tabela de débitos ser carregada
-        tabela = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, SELECTORS["tabela_debitos"]))
-        )
-        linhas = tabela.find_elements(By.XPATH, './/tbody/tr')
-        dados = []
-
-        for linha in linhas:
-            celulas = linha.find_elements(By.TAG_NAME, 'td')
-            linha_dados = [celula.text.strip() for celula in celulas]
-            dados.append(linha_dados)
-
-        # Salvar os dados na aba "Banco de Dados"
-        salvar_dados_banco(aba_banco_dados, cnpj_cpf, codigo_imovel, dados)
-
-    except Exception as e:
-        print(f"Erro ao processar débitos: {e}")
-
-# Função principal para consultar um imóvel
-def consultar_imovel(driver, cnpj_cpf, tipo_doc, planilha, aba_links, aba_banco_dados, aba_log):
-    """
-    Realiza a consulta de um imóvel e processa as informações.
-    """
-    try:
-        # Acessa a página de login
-        driver.get(URLS["login"])
+        print(f"Tentando login com {cnpj_cpf} ({tipo_doc})")
+        driver.get(URL_LOGIN)
         time.sleep(2)
 
-        # Preenche o tipo de documento e o valor correspondente
-        seletor = driver.find_element(By.ID, SELECTORS["login_selector"])
+        # Selecionar o tipo de documento
+        seletor = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.ID, SELECTORS["login_selector"]))
+        )
         seletor.send_keys(tipo_doc)
 
-        campo = driver.find_element(By.XPATH, SELECTORS["input_campo"])
+        # Inserir o CNPJ/CPF
+        campo = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["input_campo"]))
+        )
         driver.execute_script("arguments[0].value = arguments[1];", campo, cnpj_cpf)
 
-        # Realiza o login
-        botao_login = driver.find_element(By.XPATH, SELECTORS["botao_login"])
+        # Clicar no botão de login
+        botao_login = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["botao_login"]))
+        )
         botao_login.click()
-        time.sleep(3)
+     
+        # Verificar se há mensagem de erro de login
+        try:
+            mensagem_erro = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.XPATH, SELECTORS["mensagem_erro"]))
+            )
+            print(f"Erro de login detectado: {mensagem_erro.text.strip()}")
+            raise Exception(mensagem_erro.text.strip())
+        except Exception:
+            print("Nenhuma mensagem de erro encontrada, continuando...")
 
-        # Extrai os links dos imóveis
-        links = extrair_links_imoveis(driver)
-
-        # Salvar os links na aba "Link de Imóveis"
-        salvar_links(aba_links, cnpj_cpf, links, PLANILHA_PATH)
-
-        # Processar débitos para cada imóvel
-        for link in links:
-            driver.get(link["link"])
-            time.sleep(2)
-            processar_debitos(driver, cnpj_cpf, link["codigo_imovel"], aba_banco_dados)
-
-        # Registrar sucesso no log
-        registrar_log(aba_log, cnpj_cpf, tipo_doc, "Sucesso", "Consulta realizada com sucesso.")
+        # Verificar presença de elemento da tela 2 (como tabela de imóveis)
+        try:
+            WebDriverWait(driver, 10).until(
+                EC.presence_of_element_located((By.XPATH, SELECTORS["tabela_imoveis"]))
+            )
+            print("Login realizado com sucesso! Tela 2 detectada.")
+        except Exception:
+            raise Exception("Elemento da tela 2 não encontrado. O login pode ter falhado.")
 
     except Exception as e:
-        registrar_log(aba_log, cnpj_cpf, tipo_doc, "Erro", str(e))
+        print(f"Erro ao realizar login: {e}")
+        raise
+
+def extrair_tabela_imoveis(driver, cnpj_cpf, aba_links, planilha, planilha_path):
+    """Extrai dados da tabela de imóveis e os salva na aba 'Link de Imóveis'."""
+    try:
+        # Localizar a tabela
+        tabela = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["tabela_imoveis"]))
+        )
+        print("Tabela de imóveis localizada com sucesso.")
+
+        linhas = tabela.find_elements(By.XPATH, SELECTORS["tabela_linhas"])
+
+        # Extrair dados de cada linha
+        for linha in linhas:
+            try:
+                # Extrair dados das colunas usando SELECTORS
+                url_imovel = linha.find_element(By.XPATH, SELECTORS["tabela_celula_link"]).get_attribute('href')
+                codigo_imovel = linha.find_element(By.XPATH, SELECTORS["tabela_celula_codigo"]).text.strip()
+                inscricao_imobiliaria = linha.find_element(By.XPATH, SELECTORS["tabela_celula_inscricao"]).text.strip()
+                logradouro = linha.find_element(By.XPATH, SELECTORS["tabela_celula_logradouro"]).text.strip()
+                complemento = linha.find_element(By.XPATH, SELECTORS["tabela_celula_complemento"]).text.strip()
+                bairro = linha.find_element(By.XPATH, SELECTORS["tabela_celula_bairro"]).text.strip()
+                situacao = linha.find_element(By.XPATH, SELECTORS["tabela_celula_situacao"]).text.strip()
+
+                # Adicionar dados na aba "Link de Imóveis"
+                aba_links.append([
+                    cnpj_cpf,  # CNPJ/CPF
+                    codigo_imovel,  # Código do Imóvel
+                    inscricao_imobiliaria,  # Inscrição Imobiliária
+                    logradouro,  # Logradouro
+                    complemento,  # Complemento
+                    bairro,  # Bairro
+                    situacao,  # Situação
+                    url_imovel,  # URL do Imóvel
+                    "Em progresso",  # Status
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Última Atualização
+                ])
+                print(f"Imóvel {codigo_imovel} extraído com sucesso.")
+
+            except Exception as e:
+                print(f"Erro ao extrair dados da linha: {e}")
+
+        # Salvar alterações na planilha
+        planilha.save(planilha_path)
+        print(f"Dados da tabela de imóveis salvos para o CNPJ/CPF {cnpj_cpf}.")
+
+    except Exception as e:
+        print(f"Erro ao localizar tabela de imóveis: {e}")
+        raise
+
 

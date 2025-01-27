@@ -1,70 +1,48 @@
 import openpyxl
-import re
 from datetime import datetime
 from config import PLANILHA_PATH
 
-# Carregar a planilha
-def carregar_planilha(planilha_path=PLANILHA_PATH):
-    """
-    Carrega a planilha Excel e retorna o objeto de workbook.
-    """
-    return openpyxl.load_workbook(planilha_path)
+def carregar_planilha(caminho):
+    """Carrega a planilha Excel."""
+    try:
+        return openpyxl.load_workbook(caminho)
+    except Exception as e:
+        print(f"Erro ao carregar a planilha: {e}")
+        raise
 
-# Função para selecionar uma aba específica
-def selecionar_abas(planilha):
+def atualizar_status_consultar(aba, cnpj_cpf, status, caminho):
     """
-    Retorna as abas necessárias da planilha.
-    """
-    aba_consultar = planilha['Consultar']
-    aba_links = planilha['Link de Imóveis']
-    aba_log = planilha['Log de Execução']
-    aba_banco_dados = planilha['Banco de Dados']
-    return aba_consultar, aba_links, aba_log, aba_banco_dados
+    Atualiza o status e a última atualização na aba 'Consultar'.
 
-# Geração de nomes de arquivo
-def gerar_nome_arquivo(cnpj_cpf):
+    - aba: Aba "Consultar" da planilha.
+    - cnpj_cpf: O CNPJ/CPF cujo status será atualizado.
+    - status: Novo status (ex.: "Em progresso", "Finalizado", "Erro").
+    - caminho: Caminho para salvar a planilha após a atualização.
     """
-    Gera um nome de arquivo seguro removendo caracteres inválidos.
-    """
-    return re.sub(r'[\\/:*?"<>|]', '_', cnpj_cpf)
+    try:
+        for row in aba.iter_rows(min_row=2, values_only=False):
+            if row[0].value == cnpj_cpf:  # Verifica se o CNPJ/CPF corresponde
+                row[1].value = status  # Atualiza o status
+                row[2].value = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Atualiza a última data/hora
+                aba.parent.save(caminho)  # Salva a planilha
+                print(f"Status atualizado para '{status}' no CNPJ/CPF {cnpj_cpf}.")
+                break
+    except Exception as e:
+        print(f"Erro ao atualizar status: {e}")
+        raise
 
-# Registro de log
-def registrar_log(aba_log, cnpj_cpf, tipo_doc, status, mensagem="", planilha_path=PLANILHA_PATH):
+def salvar_dados_na_aba(aba, dados):
     """
-    Registra informações na aba de log.
-    """
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    aba_log.append([timestamp, cnpj_cpf, tipo_doc, status, mensagem])
-    aba_log.parent.save(planilha_path)  # Salvar as alterações na planilha
+    Adiciona uma nova linha com os dados na aba fornecida.
 
-# Atualizar o status na aba "Consultar"
-def atualizar_status_consultar(aba_consultar, cnpj_cpf, status, planilha_path=PLANILHA_PATH):
+    - aba: A aba onde os dados serão adicionados.
+    - dados: Lista com os valores a serem adicionados como nova linha.
     """
-    Atualiza o status e a data de última atualização na aba "Consultar".
-    """
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    for linha in aba_consultar.iter_rows(min_row=2, min_col=1, max_col=4):
-        if linha[0].value == cnpj_cpf:
-            linha[1].value = status  # Atualizar o status
-            linha[2].value = timestamp  # Atualizar a última atualização
-            aba_consultar.parent.save(planilha_path)
-            break
+    try:
+        aba.append(dados)  # Adiciona os dados na aba
+        aba.parent.save(PLANILHA_PATH)  # Salva as alterações na planilha
+        print(f"Dados salvos na aba '{aba.title}': {dados}")
+    except Exception as e:
+        print(f"Erro ao salvar dados na aba '{aba.title}': {e}")
+        raise
 
-# Salvar os links na aba "Link de Imóveis"
-def salvar_links(aba_links, cnpj_cpf, links, planilha_path=PLANILHA_PATH):
-    """
-    Registra os links na aba "Link de Imóveis".
-    """
-    timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    for link in links:
-        aba_links.append([cnpj_cpf, link['codigo_imovel'], link['inscricao_imobiliaria'], link['link'], "Pendente", timestamp])
-    aba_links.parent.save(planilha_path)
-
-# Salvar os dados na aba "Banco de Dados"
-def salvar_dados_banco(aba_banco_dados, cnpj_cpf, codigo_imovel, dados, planilha_path=PLANILHA_PATH):
-    """
-    Salva os dados extraídos na aba "Banco de Dados".
-    """
-    for linha in dados:
-        aba_banco_dados.append([cnpj_cpf, codigo_imovel] + linha)
-    aba_banco_dados.parent.save(planilha_path)
