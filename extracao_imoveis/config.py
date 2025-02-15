@@ -21,7 +21,9 @@ SELECTORS = {
     "tabela_celula_complemento": './/td[5]',  # Complemento
     "tabela_celula_bairro": './/td[6]',  # Bairro
     "tabela_celula_situacao": './/td[7]',  # Situação
-    "mensagem_erro": "/html/body/div/div[1]/div[2]/div[1]"  # XPath da mensagem de erro
+    "mensagem_erro": "/html/body/div/div[1]/div[2]/div[1]",  # XPath da mensagem de erro
+    "captcha_image": '//*[@id="form_index_proprietario"]/table[1]/tbody/tr[3]/td[1]/div/img',  # XPath da imagem do CAPTCHA
+    "captcha_input": '//*[@id="cod"]'  # XPath do campo de entrada do CAPTCHA
 }
 
 # Seletores para página de imóvel único (quando existir apenas um imóvel)
@@ -33,4 +35,3 @@ SINGLE_IMOVEL_SELECTORS = {
     "bairro": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[4]/td[4]/input',
     "situacao": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[2]/td[4]/input'
 }
-

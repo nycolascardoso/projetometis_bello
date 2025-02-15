@@ -1,6 +1,6 @@
 import openpyxl
 from datetime import datetime
-from config import PLANILHA_PATH
+from extracao_imoveis.config import PLANILHA_PATH
 
 def carregar_planilha(caminho):
     """Carrega a planilha Excel a partir do caminho informado."""
@@ -39,10 +39,10 @@ def atualizar_status_consultar(aba, cnpj_cpf, status, caminho):
                 if "Erro" not in status:
                     row[4].value = "Não"
                 aba.parent.save(caminho)
-                print(f"Status atualizado para '{status}' no CNPJ/CPF {cnpj_cpf}.")
+                print(f"🔄 Status atualizado para '{status}' no CNPJ/CPF {cnpj_cpf}.")
                 break
     except Exception as e:
-        print(f"Erro ao atualizar status: {e}")
+        print(f"❌ Erro ao atualizar status: {e}")
         raise
 
 def salvar_dados_na_aba(aba, dados):
@@ -56,9 +56,9 @@ def salvar_dados_na_aba(aba, dados):
     try:
         aba.append(dados)
         aba.parent.save(PLANILHA_PATH)
-        print(f"Dados salvos na aba '{aba.title}': {dados}")
+        print(f"✅ Dados salvos na aba '{aba.title}': {dados}")
     except Exception as e:
-        print(f"Erro ao salvar dados na aba '{aba.title}': {e}")
+        print(f"❌ Erro ao salvar dados na aba '{aba.title}': {e}")
         raise
 
 def salvar_dados_reprocessamento(aba, dados):
@@ -73,9 +73,9 @@ def salvar_dados_reprocessamento(aba, dados):
     try:
         aba.append(dados)
         aba.parent.save(PLANILHA_PATH)
-        print(f"Dados salvos na aba '{aba.title}' (Reprocessamento): {dados}")
+        print(f"🔁 Dados salvos na aba '{aba.title}' (Reprocessamento): {dados}")
     except Exception as e:
-        print(f"Erro ao salvar dados na aba '{aba.title}' (Reprocessamento): {e}")
+        print(f"❌ Erro ao salvar dados na aba '{aba.title}' (Reprocessamento): {e}")
         raise
 
 def obter_linhas_para_processamento(aba):
@@ -106,8 +106,8 @@ def obter_linhas_para_processamento(aba):
                     "cnpj_cpf": cnpj_cpf,
                     "tipo_doc": tipo_doc
                 })
-        print(f"Foram encontradas {len(linhas_processar)} linhas para processamento.")
+        print(f"📌 {len(linhas_processar)} linhas encontradas para processamento.")
         return linhas_processar
     except Exception as e:
-        print(f"Erro ao obter linhas para processamento: {e}")
+        print(f"❌ Erro ao obter linhas para processamento: {e}")
         raise

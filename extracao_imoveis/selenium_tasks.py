@@ -2,7 +2,7 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS
+from extracao_imoveis.config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS
 from datetime import datetime
 import time
 from selenium.common.exceptions import TimeoutException
@@ -17,8 +17,28 @@ def iniciar_driver():
     options.add_argument("start-maximized")
     return webdriver.Edge(service=service, options=options)
 
+def resolver_captcha(driver):
+    """Resolve o CAPTCHA usando OCR."""
+    try:
+        print("🟡 Resolvendo CAPTCHA...")
+        captcha_element = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_image"]))
+        )
+        captcha_base64 = captcha_element.get_attribute("src").split(",")[-1]
+        captcha_image = Image.open(BytesIO(base64.b64decode(captcha_base64)))
+        reader = easyocr.Reader(['en'])
+        result = reader.readtext(captcha_image, detail=0)
+        captcha_text = result[0] if result else ""
+        print(f"🟢 CAPTCHA resolvido: {captcha_text}")
+        return captcha_text
+    except Exception as e:
+        print(f"🔴 Erro ao resolver CAPTCHA: {e}")
+        return ""
+
+
+
 def realizar_login(driver, cnpj_cpf, tipo_doc):
-    """Realiza o login na tela inicial e verifica se foi bem-sucedido."""
+    """Realiza o login na tela inicial e verifica se foi bem-sucedido, resolvendo o CAPTCHA."""
     try:
         print(f"Tentando login com {cnpj_cpf} ({tipo_doc})")
         driver.get(URL_LOGIN)
@@ -35,6 +55,18 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
             EC.presence_of_element_located((By.XPATH, SELECTORS["input_campo"]))
         )
         driver.execute_script("arguments[0].value = arguments[1];", campo, cnpj_cpf)
+
+        # Resolver CAPTCHA
+        captcha_text = resolver_captcha(driver)
+        if not captcha_text:
+            raise Exception("Falha ao resolver CAPTCHA")
+
+        # Insere o CAPTCHA resolvido
+        captcha_input = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
+        )
+        captcha_input.send_keys(captcha_text)
+        time.sleep(3)  # Aguarda antes de enviar o formulário
 
         # Clica no botão de login
         botao_login = WebDriverWait(driver, 10).until(
@@ -55,28 +87,20 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
         if erro_elems:
             erro_text = erro_elems[0].text.strip()
             if erro_text:
-                if "não encontrado" in erro_text.lower():
-                    print(f"Login falhou para CNPJ/CPF {cnpj_cpf}: {erro_text}")
-                    raise Exception("Erro: CNPJ/CPF não encontrado")
-                else:
-                    print(f"Erro de login detectado: {erro_text}")
-                    raise Exception(erro_text)
+                print(f"Erro de login: {erro_text}")
+                raise Exception(f"Erro de login: {erro_text}")
 
         # Se não houve erro, verifica se foi carregada a tabela ou a página de imóvel único
-        tabela_elems = driver.find_elements(By.XPATH, SELECTORS["tabela_imoveis"])
-        if tabela_elems:
-            print("Login realizado com sucesso! Tela 2 (tabela) detectada.")
+        if driver.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]):
+            print("🟢 Login realizado com sucesso! Tela 2 (tabela) detectada.")
+        elif driver.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"]):
+            print("🟢 Login realizado com sucesso! Imóvel único detectado.")
         else:
-            codigo_elems = driver.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"])
-            if codigo_elems:
-                print("Login realizado com sucesso! Imóvel único detectado.")
-            else:
-                raise Exception("Erro: Nenhum elemento de sucesso encontrado. Possível problema de conexão ou login.")
+            raise Exception("Erro: Nenhum elemento de sucesso encontrado. Possível problema de conexão ou login.")
 
     except Exception as e:
-        print(f"Erro ao realizar login: {e}")
+        print(f"🔴 Erro ao realizar login: {e}")
         raise
-
 
 def extrair_tabela_imoveis(driver, cnpj_cpf, aba_links, planilha, planilha_path):
     """

@@ -1,14 +1,12 @@
-from selenium_tasks import iniciar_driver, realizar_login, extrair_tabela_imoveis
-from utils import carregar_planilha, atualizar_status_consultar
-from config import PLANILHA_PATH
+from extracao_imoveis.selenium_tasks import iniciar_driver, realizar_login, extrair_tabela_imoveis
+from extracao_imoveis.utils import carregar_planilha, atualizar_status_consultar
+from extracao_imoveis.config import PLANILHA_PATH
 
 # Flag para ativar o modo de teste unitário
 TEST_MODE = False  # Altere para False para execução normal
 
 if TEST_MODE:
     # Modo de teste: utiliza um CPF/CNPJ e Tipo de Documento de exemplo
-    # Note que, neste exemplo, o primeiro valor é sobrescrito; portanto, será usado "005.056.569-90"
-    
     tipo_doc_teste = "CPF proprietário"  
     cnpj_cpf_teste = "005.056.569-90"   # Valor final a ser usado (pode ser "CNPJ" se necessário)
     
@@ -64,25 +62,31 @@ else:
             
             # Processa somente se "Processar" estiver marcado como "Sim"
             if cnpj_cpf and tipo_doc and processar_flag and processar_flag.strip().lower() == "sim":
-                try:
-                    print(f"\nIniciando processamento para CNPJ/CPF: {cnpj_cpf}, Tipo de Documento: {tipo_doc}")
-                    
-                    # Atualiza o status para "Em progresso" na aba "Consultar"
-                    atualizar_status_consultar(aba_consultar, cnpj_cpf, "Em progresso", PLANILHA_PATH)
-                    
-                    # Realiza o login (caso o login falhe, uma exceção é lançada)
-                    realizar_login(driver, cnpj_cpf, tipo_doc)
-                    
-                    # Extrai os dados (a função decide se é tabela ou imóvel único) e salva na aba "Link de Imóveis"
-                    extrair_tabela_imoveis(driver, cnpj_cpf, aba_links, planilha, PLANILHA_PATH)
-                    
-                    # Atualiza o status para "Finalizado" e redefine "Processar" para "Não"
-                    atualizar_status_consultar(aba_consultar, cnpj_cpf, "Finalizado", PLANILHA_PATH)
-                    print(f"Processamento finalizado com sucesso para {cnpj_cpf}")
-                except Exception as e:
-                    # Em caso de erro, atualiza o status com a mensagem de erro e mantém o flag "Sim" para reprocessamento
-                    atualizar_status_consultar(aba_consultar, cnpj_cpf, f"Erro: {e}", PLANILHA_PATH)
-                    print(f"Erro ao processar CNPJ/CPF {cnpj_cpf}: {e}")
+                tentativas = 3  # Define o número máximo de tentativas de login
+                for tentativa in range(1, tentativas + 1):
+                    try:
+                        print(f"\nTentativa {tentativa}/{tentativas} para CNPJ/CPF: {cnpj_cpf}, Tipo de Documento: {tipo_doc}")
+
+                        # Atualiza o status para "Em progresso"
+                        atualizar_status_consultar(aba_consultar, cnpj_cpf, "Em progresso", PLANILHA_PATH)
+
+                        # Realiza login com tratamento de CAPTCHA
+                        realizar_login(driver, cnpj_cpf, tipo_doc)
+
+                        # Extração e salvamento de dados
+                        extrair_tabela_imoveis(driver, cnpj_cpf, aba_links, planilha, PLANILHA_PATH)
+
+                        # Atualiza status para "Finalizado"
+                        atualizar_status_consultar(aba_consultar, cnpj_cpf, "Finalizado", PLANILHA_PATH)
+                        print(f"🟢 Processamento finalizado para {cnpj_cpf}")
+                        break  # Sai do loop de tentativas se o login foi bem-sucedido
+
+                    except Exception as e:
+                        print(f"🔴 Erro na tentativa {tentativa}: {e}")
+
+                        if tentativa == tentativas:
+                            atualizar_status_consultar(aba_consultar, cnpj_cpf, f"Erro: {e}", PLANILHA_PATH)
+                            print(f"⛔ Login falhou após {tentativas} tentativas para {cnpj_cpf}")
             else:
                 print(f"Ignorando linha para CNPJ/CPF {cnpj_cpf}: 'Processar' não está marcado como 'Sim'.")
     except Exception as e:
@@ -90,4 +94,3 @@ else:
     finally:
         driver.quit()
         print("Driver encerrado.")
-
