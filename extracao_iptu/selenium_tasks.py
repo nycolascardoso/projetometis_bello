@@ -10,7 +10,7 @@ import base64
 from io import BytesIO
 from PIL import Image
 import easyocr
-from extracao_iptu.config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS, PLANILHA_PATH
+from extracao_iptu.config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS, PLANILHA_PATH, TABLE_SELECTORS
 
 # Inicia o WebDriver
 def iniciar_driver():
@@ -138,32 +138,120 @@ def acessar_carnê_iptu(driver):
         raise
 
 # Extrai os dados da tabela de IPTU
+# Extrai os dados da tabela de IPTU
 def extrair_tabela_iptu(driver):
-    """Extrai os dados da tabela de IPTU."""
+    """Extrai a tabela de IPTU, removendo o cabeçalho e a última linha sem excluir dados importantes."""
     try:
         print("📋 Extraindo tabela de IPTU...")
-        tabela = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, SELECTORS["tabela_iptu"]))
+
+        # Aguarda o carregamento da tabela
+        tabela = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH, TABLE_SELECTORS["tabela_iptu"]))
         )
 
         # Captura todas as linhas da tabela
-        linhas = tabela.find_elements(By.XPATH, ".//tr")
-        if not linhas:
-            raise Exception("Nenhuma linha encontrada na tabela de IPTU.")
+        linhas = tabela.find_elements(By.XPATH, TABLE_SELECTORS["linhas_tabela_iptu"])
+
+        if not linhas or len(linhas) < 2:
+            print("⚠️ Nenhuma informação de carnê IPTU disponível para este imóvel.")
+            return None  # Retorna None para indicar que não há carnê
 
         print(f"🟢 {len(linhas)} linhas encontradas na tabela de IPTU.")
 
-        dados = []
-        for linha in linhas:
-            colunas = linha.find_elements(By.XPATH, ".//td")  # Captura todas as células
-            valores = [col.text.strip() for col in colunas]
+        # Remove a primeira linha se for um cabeçalho
+        primeira_linha = linhas[0].find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
+        if primeira_linha and all(coluna.text.strip().isalpha() for coluna in primeira_linha):
+            print("🗑️ Cabeçalho detectado e removido.")
+            linhas = linhas[1:]
 
-            if valores:  # Ignora linhas vazias
+        # Remove a última linha se for um resumo
+        ultima_linha = linhas[-1].find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
+        if ultima_linha and any("Total" in coluna.text for coluna in ultima_linha):
+            print("🗑️ Linha de resumo detectada e removida.")
+            linhas = linhas[:-1]
+
+        # Se após remoções não restar nenhuma linha, retorna como vazio
+        if not linhas:
+            print("⚠️ Nenhuma linha válida restante após limpeza da tabela.")
+            return None
+
+        dados = []
+        tipo_pagamento = None  # Variável para identificar o tipo de pagamento
+
+        for linha in linhas:
+            colunas = linha.find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
+            valores = [coluna.text.strip() for coluna in colunas]
+
+            if valores:
+                descricao = valores[1]  # Presumindo que a segunda coluna contém a descrição da parcela
+
+                # Determina o tipo de pagamento com base na descrição
+                if "Cota Única 20%" in descricao:
+                    tipo_pagamento = "Cota Única 20%"
+                elif "Cota Única 10%" in descricao:
+                    tipo_pagamento = "Cota Única 10%"
+                elif "Parcela" in descricao:
+                    tipo_pagamento = "Parcelamento Completo"
+
+                valores.append(tipo_pagamento)  # Adiciona a categoria da parcela na última coluna
                 dados.append(valores)
 
-        return dados  # Garante que estamos retornando uma lista de listas
+        print(f"✅ {len(dados)} linhas processadas após limpeza e categorização.")
+        return dados
+
+    except TimeoutException:
+        print("⚠️ Nenhuma tabela de IPTU encontrada. Provavelmente o imóvel não tem carnê disponível.")
+        return None  # Retorna None para indicar que não há carnê IPTU para este imóvel
 
     except Exception as e:
         print(f"❌ Erro ao extrair tabela IPTU: {e}")
-        raise
+        return None  # Retorna None para garantir que o erro não impeça a execução do restante do código
 
+
+def capturar_inscricao_imobiliaria(driver):
+    """Extrai a Inscrição Imobiliária na página pós-login."""
+    try:
+        print("🔍 Extraindo Inscrição Imobiliária...")
+        
+        inscricao_elemento = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["inscricao_imobiliaria"]))
+        )
+        inscricao_imobiliaria = inscricao_elemento.get_attribute("value").strip()
+
+        print(f"✅ Inscrição Imobiliária extraída: {inscricao_imobiliaria}")
+        return inscricao_imobiliaria
+
+    except Exception as e:
+        print(f"❌ Erro ao capturar Inscrição Imobiliária: {e}")
+        return None
+
+def capturar_dados_adicionais(driver):
+    """Captura Localização, Tipologia, Estrutura, Utilização e Proprietário na página pós-login."""
+    try:
+        print("🔍 Extraindo dados adicionais do imóvel...")
+
+        dados = {}
+
+        # Captura os campos de interesse
+        for key, xpath in {
+            "localizacao": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[3]/td[6]/input',
+            "tipologia": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[2]/td[4]/input',
+            "estrutura": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[4]/td[2]/input',
+            "utilizacao": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[5]/td[4]/input',
+            "proprietario": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[1]/td[2]/input'
+        }.items():
+            try:
+                elemento = WebDriverWait(driver, 5).until(
+                    EC.presence_of_element_located((By.XPATH, xpath))
+                )
+                dados[key] = elemento.get_attribute("value").strip() if elemento.get_attribute("value") else "N/A"
+            except Exception:
+                print(f"⚠️ Não foi possível capturar {key}.")
+                dados[key] = "N/A"
+
+        print(f"✅ Dados capturados: {dados}")
+        return dados
+
+    except Exception as e:
+        print(f"❌ Erro ao capturar dados adicionais: {e}")
+        return None

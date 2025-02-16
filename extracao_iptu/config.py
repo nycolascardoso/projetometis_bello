@@ -20,10 +20,26 @@ SELECTORS = {
     "tabela_iptu": '//*[@id="frm_lista_debitos"]/table',  # Tabela de dados IPTU
     "tabela_imoveis": '/html/body/div[1]/div[1]/div[2]/form/table',  # XPath completo da tabela de imóveis
     "mensagem_erro": "/html/body/div/div[1]/div[2]/div[1]",  # XPath da mensagem de erro
-    "pagina_consulta": "https://nfse1.publica.inf.br/cacador_eiptu/jsp/portal/consultaDebitoIptu.jsp"
+    "pagina_consulta": "https://nfse1.publica.inf.br/cacador_eiptu/jsp/portal/consultaDebitoIptu.jsp",
+    "inscricao_imobiliaria": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[2]/td[2]/input',  # Campo de Inscrição Imobiliária
+    "localizacao": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[3]/td[6]/input',
+    "tipologia": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[2]/td[4]/input',
+    "estrutura": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[4]/td[2]/input',
+    "utilizacao": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[5]/td[4]/input',
+    "proprietario": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[1]/td[2]/input'
 }
+
+
 
 SINGLE_IMOVEL_SELECTORS = {
     "codigo_imovel": '/html/body/div/div[1]/div[2]/div[8]/div/div/table/tbody/tr[2]/td[2]/input',
 }
 # Caso surjam novos elementos que precisem de seletores adicionais, poderão ser incluídos aqui.
+
+# Seletores para a tabela do Carnê IPTU
+TABLE_SELECTORS = {
+    "tabela_iptu": '//*[@id="frm_lista_debitos"]/table',  # Tabela principal
+    "linhas_tabela_iptu": '//*[@id="frm_lista_debitos"]/table/tbody/tr',  # Linhas dentro da tabela
+    "colunas_tabela_iptu": './/td'  # Colunas dentro de cada linha
+}
+
