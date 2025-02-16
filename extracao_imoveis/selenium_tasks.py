@@ -1,3 +1,8 @@
+import easyocr
+import base64
+import numpy as np
+from io import BytesIO
+from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -5,6 +10,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from extracao_imoveis.config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS
 from datetime import datetime
 import time
+import os
 from selenium.common.exceptions import TimeoutException
 
 def iniciar_driver():
@@ -18,27 +24,42 @@ def iniciar_driver():
     return webdriver.Edge(service=service, options=options)
 
 def resolver_captcha(driver):
-    """Resolve o CAPTCHA usando OCR."""
+    """Resolve o CAPTCHA e retorna o texto lido."""
     try:
-        print("🟡 Resolvendo CAPTCHA...")
+        print("🟡 Buscando a imagem do CAPTCHA...")
         captcha_element = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_image"]))
         )
+
+        print("📸 Capturando imagem do CAPTCHA...")
         captcha_base64 = captcha_element.get_attribute("src").split(",")[-1]
-        captcha_image = Image.open(BytesIO(base64.b64decode(captcha_base64)))
-        reader = easyocr.Reader(['en'])
-        result = reader.readtext(captcha_image, detail=0)
+        captcha_bytes = base64.b64decode(captcha_base64)
+        captcha_image = Image.open(BytesIO(captcha_bytes))
+
+        # Salva a imagem temporariamente para depuração
+        captcha_image.save("captcha_temp.png")
+        print("💾 CAPTCHA salvo como 'captcha_temp.png'")
+
+        # Carrega a imagem salva e converte para NumPy array
+        captcha_image = Image.open("captcha_temp.png").convert("L")  # Converte para escala de cinza
+        captcha_array = np.array(captcha_image)  # Converte para array NumPy
+
+        # Processa a imagem com EasyOCR
+        print("🧐 Lendo CAPTCHA com OCR...")
+        reader = easyocr.Reader(["en"])
+        result = reader.readtext(captcha_array, detail=0)
+
         captcha_text = result[0] if result else ""
         print(f"🟢 CAPTCHA resolvido: {captcha_text}")
+
         return captcha_text
+
     except Exception as e:
-        print(f"🔴 Erro ao resolver CAPTCHA: {e}")
+        print(f"❌ Erro ao resolver CAPTCHA: {e}")
         return ""
 
-
-
 def realizar_login(driver, cnpj_cpf, tipo_doc):
-    """Realiza o login na tela inicial e verifica se foi bem-sucedido, resolvendo o CAPTCHA."""
+    """Realiza o login e resolve o CAPTCHA automaticamente."""
     try:
         print(f"Tentando login com {cnpj_cpf} ({tipo_doc})")
         driver.get(URL_LOGIN)
@@ -66,6 +87,8 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
             EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
         )
         captcha_input.send_keys(captcha_text)
+        print(f"⌨️ CAPTCHA inserido: {captcha_text}")
+
         time.sleep(3)  # Aguarda antes de enviar o formulário
 
         # Clica no botão de login
@@ -75,32 +98,32 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
         botao_login.click()
 
         # Aguarda até que algum dos seguintes elementos apareça:
-        # (a) Mensagem de erro, (b) Tabela de imóveis ou (c) Indicador de imóvel único.
         WebDriverWait(driver, 10).until(
             lambda d: d.find_elements(By.XPATH, SELECTORS["mensagem_erro"]) or
                       d.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]) or
                       d.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"])
         )
 
-        # Verifica se há mensagem de erro (supondo que o elemento exista e esteja com texto significativo)
+        # Verifica se há mensagem de erro
         erro_elems = driver.find_elements(By.XPATH, SELECTORS["mensagem_erro"])
         if erro_elems:
             erro_text = erro_elems[0].text.strip()
             if erro_text:
-                print(f"Erro de login: {erro_text}")
+                print(f"❌ Erro de login: {erro_text}")
                 raise Exception(f"Erro de login: {erro_text}")
 
-        # Se não houve erro, verifica se foi carregada a tabela ou a página de imóvel único
+        # Verifica se o login foi bem-sucedido
         if driver.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]):
             print("🟢 Login realizado com sucesso! Tela 2 (tabela) detectada.")
         elif driver.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"]):
             print("🟢 Login realizado com sucesso! Imóvel único detectado.")
         else:
-            raise Exception("Erro: Nenhum elemento de sucesso encontrado. Possível problema de conexão ou login.")
+            raise Exception("❌ Erro: Nenhum elemento de sucesso encontrado.")
 
     except Exception as e:
         print(f"🔴 Erro ao realizar login: {e}")
         raise
+
 
 def extrair_tabela_imoveis(driver, cnpj_cpf, aba_links, planilha, planilha_path):
     """
