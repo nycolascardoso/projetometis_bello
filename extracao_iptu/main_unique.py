@@ -131,4 +131,5 @@ def main():
 if __name__ == "__main__":
     main()
 
+
 #python -m extracao_iptu.main_unique

@@ -3,9 +3,15 @@ from extracao_iptu.selenium_tasks import (
     realizar_login, 
     acessar_carnê_iptu, 
     extrair_tabela_iptu, 
-    capturar_inscricao_imobiliaria
+    capturar_inscricao_imobiliaria,
+    capturar_dados_adicionais  
 )
-from extracao_iptu.utils import carregar_planilha, salvar_dados_na_aba, atualizar_status_iptu
+from extracao_iptu.utils import (
+    carregar_planilha, 
+    salvar_dados_na_aba, 
+    atualizar_status_iptu, 
+    atualizar_dados_imovel  
+)
 from extracao_iptu.config import PLANILHA_PATH
 
 def main():
@@ -14,17 +20,15 @@ def main():
         planilha = carregar_planilha(PLANILHA_PATH)
         aba_link_imoveis = planilha['Link de Imóveis']
         aba_banco_dados = planilha['Banco de Dados']
-        print("📂 Planilha carregada com sucesso.")
+        print("\U0001F4C2 Planilha carregada com sucesso.")
     except Exception as e:
         print(f"❌ Erro ao carregar a planilha: {e}")
         return
 
-    # Obtém os primeiros 15 imóveis que devem ser extraídos (Coluna K == "Sim")
+    # Obtém todos os imóveis que devem ser extraídos (Coluna K == "Sim")
     imoveis_para_processar = []
-    
-    for row in aba_link_imoveis.iter_rows(min_row=2, max_row=16, values_only=True):
+    for row in aba_link_imoveis.iter_rows(min_row=2, values_only=True):
         if len(row) < 11:  # Certifica que a linha tem pelo menos 11 colunas
-            print(f"⚠️ Linha incompleta detectada e ignorada: {row}")
             continue
 
         codigo_imovel, extrair_iptu = row[1], row[10]  # Coluna B (Código do Imóvel) e Coluna K ("Extrair IPTU?")
@@ -41,7 +45,7 @@ def main():
         for idx, codigo_imovel in enumerate(imoveis_para_processar, start=1):
             print(f"\n🏠 Iniciando extração {idx}/{len(imoveis_para_processar)} - Código do imóvel: {codigo_imovel}")
 
-            tentativas = 3  # Número máximo de tentativas para login
+            tentativas = 2  # Número máximo de tentativas para login
             sucesso = False
 
             for tentativa in range(1, tentativas + 1):
@@ -53,6 +57,9 @@ def main():
 
                     # Captura Inscrição Imobiliária
                     inscricao_imobiliaria = capturar_inscricao_imobiliaria(driver)
+
+                    # Captura os novos dados (Localização, Tipologia, Estrutura, Utilização, Proprietário)
+                    dados_adicionais = capturar_dados_adicionais(driver)
 
                     # Acessa a página do Carnê IPTU
                     acessar_carnê_iptu(driver)
@@ -72,6 +79,18 @@ def main():
                 try:
                     # Extrai a tabela de IPTU
                     dados_iptu = extrair_tabela_iptu(driver)
+
+                    # Atualiza a aba "Link de Imóveis" com os novos dados coletados
+                    atualizar_dados_imovel(
+                        aba_link_imoveis, 
+                        codigo_imovel, 
+                        dados_adicionais["localizacao"], 
+                        dados_adicionais["tipologia"], 
+                        dados_adicionais["estrutura"], 
+                        dados_adicionais["utilizacao"], 
+                        dados_adicionais["proprietario"], 
+                        PLANILHA_PATH
+                    )
 
                     if not dados_iptu:  # Se retornou None, registra como "Sem Carnê IPTU"
                         print(f"⚠️ Nenhum dado extraído para o imóvel {codigo_imovel}. Registrando como 'Sem Carnê IPTU'.")
@@ -103,14 +122,9 @@ def main():
                     print(f"❌ Erro ao processar código do imóvel {codigo_imovel}: {e}")
                     atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Erro de Processamento", PLANILHA_PATH)
 
-    except Exception as e:
-        print(f"❌ Erro inesperado: {e}")
-    
     finally:
-        # Finaliza o WebDriver ao término da execução
         driver.quit()
         print("🛑 Driver encerrado.")
-
 
 if __name__ == "__main__":
     main()
