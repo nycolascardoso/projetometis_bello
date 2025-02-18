@@ -3,14 +3,18 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
-from datetime import datetime
+import pytesseract
 import numpy as np
 import time
 import base64
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 import easyocr
-from extracao_iptu.config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS, PLANILHA_PATH, TABLE_SELECTORS
+from extracao_iptu.config import (
+    DRIVER_PATH, SELECTORS, SETTINGS, SINGLE_IMOVEL_SELECTORS, TABLE_SELECTORS, URL_CARNE_IPTU, URL_LOGIN
+)
+
+pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe'
 
 # Inicia o WebDriver
 def iniciar_driver():
@@ -23,7 +27,7 @@ def iniciar_driver():
     options.add_argument("start-maximized")
     return webdriver.Edge(service=service, options=options)
 
-# Resolve o CAPTCHA (se necessário)
+# Resolve o CAPTCHA de forma otimizada
 def resolver_captcha(driver):
     """Resolve o CAPTCHA e retorna o texto lido."""
     try:
@@ -59,94 +63,137 @@ def resolver_captcha(driver):
         print(f"❌ Erro ao resolver CAPTCHA: {e}")
         return ""
 
-
-# Realiza login no sistema
+# Realiza login no sistema de forma otimizada
 def realizar_login(driver, codigo_imovel):
-    """Realiza o login e verifica se foi bem-sucedido, resolvendo o CAPTCHA."""
+    """Realiza login no sistema e verifica sucesso."""
+    for tentativa in range(1, SETTINGS["max_tentativas_login"] + 1):
+        try:
+            print(f"🔄 Tentativa {tentativa}/{SETTINGS['max_tentativas_login']} para login com código do imóvel: {codigo_imovel}")
+            driver.get(URL_LOGIN)
+
+            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                EC.presence_of_element_located((By.ID, SELECTORS["login_selector"]))
+            ).send_keys("Cód. do imóvel")
+
+            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                EC.presence_of_element_located((By.XPATH, SELECTORS["input_campo"]))
+            ).send_keys(codigo_imovel)
+
+            captcha_text = resolver_captcha(driver)
+            if not captcha_text:
+                raise Exception("Falha ao resolver CAPTCHA")
+
+            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
+            ).send_keys(captcha_text)
+
+            # Clica no botão de login imediatamente após inserir o CAPTCHA
+            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                EC.element_to_be_clickable((By.XPATH, SELECTORS["botao_login"]))
+            ).click()
+
+            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                lambda d: d.find_elements(By.XPATH, SELECTORS["mensagem_erro"]) or
+                          d.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]) or
+                          d.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"])
+            )
+
+            print(f"🟢 Login realizado com sucesso para o imóvel {codigo_imovel}.")
+            return True
+
+        except Exception as e:
+            print(f"⚠️ Tentativa {tentativa}/{SETTINGS['max_tentativas_login']} falhou: {e}")
+
+    print(f"❌ Falha no login após várias tentativas para o imóvel {codigo_imovel}.")
+    return False
+
+# Captura a inscrição imobiliária
+def capturar_inscricao_imobiliaria(driver):
+    """Extrai a Inscrição Imobiliária na página pós-login."""
     try:
-        print(f"Tentando login com código do imóvel: {codigo_imovel}")
-        driver.get(URL_LOGIN)
-        time.sleep(2)
-
-        # Seleciona o tipo de login e insere o código do imóvel
-        seletor_login = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, SELECTORS["login_selector"]))
+        print("🔍 Extraindo Inscrição Imobiliária...")
+        inscricao_elemento = WebDriverWait(driver, 5).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["inscricao_imobiliaria"]))
         )
-        seletor_login.send_keys("Cód. do imóvel")
+        inscricao_imobiliaria = inscricao_elemento.get_attribute("value").strip()
 
-        campo_codigo = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, SELECTORS["input_campo"]))
-        )
-        driver.execute_script("arguments[0].value = arguments[1];", campo_codigo, codigo_imovel)
-
-        # Resolve o CAPTCHA
-        captcha_text = resolver_captcha(driver)
-        if not captcha_text:
-            raise Exception("Falha ao resolver CAPTCHA")
-        captcha_input = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
-        )
-        captcha_input.send_keys(captcha_text)
- 
-        time.sleep(3)  # Aguarda antes de enviar o formulário
-
-        # Clica no botão de login
-        botao_login = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, SELECTORS["botao_login"]))
-        )
-        botao_login.click()
-
-        # Aguarda até que algum dos seguintes elementos apareça:
-        WebDriverWait(driver, 10).until(
-            lambda d: d.find_elements(By.XPATH, SELECTORS["mensagem_erro"]) or
-                      d.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]) or
-                      d.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"])
-        )
-
-        # Verifica se há mensagem de erro
-        erro_elems = driver.find_elements(By.XPATH, SELECTORS["mensagem_erro"])
-        if erro_elems:
-            erro_text = erro_elems[0].text.strip()
-            if erro_text:
-                print(f"❌ Erro de login: {erro_text}")
-                raise Exception(f"Erro de login: {erro_text}")
-
-        # Verifica se o login foi bem-sucedido
-        if driver.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]):
-            print("🟢 Login realizado com sucesso! Tela 2 (tabela) detectada.")
-        elif driver.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"]):
-            print("🟢 Login realizado com sucesso! Imóvel único detectado.")
-        else:
-            raise Exception("❌ Erro: Nenhum elemento de sucesso encontrado.")
+        print(f"✅ Inscrição Imobiliária extraída: {inscricao_imobiliaria}")
+        return inscricao_imobiliaria
 
     except Exception as e:
-        print(f"🔴 Erro ao realizar login: {e}")
-        raise
+        print(f"❌ Erro ao capturar Inscrição Imobiliária: {e}")
+        return None
 
-# Navega até a página do Carnê IPTU
-def acessar_carnê_iptu(driver):
+# Captura dados adicionais do imóvel
+def capturar_dados_adicionais(driver):
+    """Captura Localização, Tipologia, Estrutura, Utilização e Proprietário, incluindo o tratamento de 'Baldio'."""
+    try:
+        print("🔍 Extraindo dados adicionais do imóvel...")
+
+        # 🔹 Captura o campo "Ocupação" primeiro para verificar se é baldio
+        ocupacao_texto = "N/A"
+        try:
+            ocupacao_elemento = WebDriverWait(driver, 3).until(
+                EC.presence_of_element_located((By.XPATH, SELECTORS["ocupacao"]))
+            )
+            ocupacao_texto = ocupacao_elemento.get_attribute("value").strip().lower()
+            print(f"🏗️ Ocupação identificada: {ocupacao_texto}")
+
+        except TimeoutException:
+            print("⚠️ Campo 'Ocupação' não encontrado. Continuando normalmente.")
+
+        # 🔹 Se for baldio, preenche os campos automaticamente
+        if "baldio" in ocupacao_texto:
+            print("🏗️ Imóvel identificado como BALDIO. Preenchendo automaticamente os dados...")
+            return {
+                "localizacao": "Baldio s/uso",
+                "tipologia": "Baldio s/uso",
+                "estrutura": "Baldio s/uso",
+                "utilizacao": "Baldio s/uso",
+                "proprietario": "Baldio s/uso"
+            }
+
+        # 🔹 Caso contrário, captura os demais campos
+        dados = {}
+        for key in ["localizacao", "tipologia", "estrutura", "utilizacao", "proprietario"]:
+            try:
+                elemento = WebDriverWait(driver, 3).until(
+                    EC.presence_of_element_located((By.XPATH, SELECTORS[key]))
+                )
+                dados[key] = elemento.get_attribute("value").strip() if elemento.get_attribute("value") else "N/A"
+            except TimeoutException:
+                print(f"⚠️ Campo '{key}' não encontrado. Definindo como 'N/A'.")
+                dados[key] = "N/A"
+
+        print(f"✅ Dados capturados: {dados}")
+        return dados
+
+    except Exception as e:
+        print(f"❌ Erro ao capturar dados adicionais: {e}")
+        return None
+
+# Acessa a página do Carnê IPTU
+def acessar_carne_iptu(driver):
     """Acessa diretamente a página do Carnê IPTU."""
     try:
         print("🔗 Acessando página do Carnê IPTU...")
-        driver.get(SELECTORS["pagina_consulta"])
-        WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, SELECTORS["tabela_iptu"]))
+        driver.get(URL_CARNE_IPTU)
+        WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+            EC.presence_of_element_located((By.XPATH, TABLE_SELECTORS["elemento_tabela_iptu"]))
         )
         print("🟢 Página do Carnê IPTU carregada.")
     except Exception as e:
         print(f"❌ Erro ao acessar Carnê IPTU: {e}")
         raise
 
-# Extrai os dados da tabela de IPTU
-# Extrai os dados da tabela de IPTU
 def extrair_tabela_iptu(driver):
-    """Extrai a tabela de IPTU, removendo o cabeçalho e a última linha sem excluir dados importantes."""
+    """Extrai a tabela de IPTU, removendo cabeçalho, totalizadores e categorizando parcelas corretamente."""
     try:
         print("📋 Extraindo tabela de IPTU...")
 
         # Aguarda o carregamento da tabela
-        tabela = WebDriverWait(driver, 5).until(
-            EC.presence_of_element_located((By.XPATH, TABLE_SELECTORS["tabela_iptu"]))
+        tabela = WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+            EC.presence_of_element_located((By.XPATH, TABLE_SELECTORS["elemento_tabela_iptu"]))
         )
 
         # Captura todas as linhas da tabela
@@ -158,16 +205,16 @@ def extrair_tabela_iptu(driver):
 
         print(f"🟢 {len(linhas)} linhas encontradas na tabela de IPTU.")
 
-        # Remove a primeira linha se for um cabeçalho
+        # 🔹 Remove a primeira linha se for um cabeçalho
         primeira_linha = linhas[0].find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
         if primeira_linha and all(coluna.text.strip().isalpha() for coluna in primeira_linha):
             print("🗑️ Cabeçalho detectado e removido.")
             linhas = linhas[1:]
 
-        # Remove a última linha se for um resumo
+        # 🔹 Remove a última linha se for um totalizador
         ultima_linha = linhas[-1].find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
         if ultima_linha and any("Total" in coluna.text for coluna in ultima_linha):
-            print("🗑️ Linha de resumo detectada e removida.")
+            print(f"⚠️ Removendo linha de totalização: {[coluna.text for coluna in ultima_linha]}")
             linhas = linhas[:-1]
 
         # Se após remoções não restar nenhuma linha, retorna como vazio
@@ -176,8 +223,6 @@ def extrair_tabela_iptu(driver):
             return None
 
         dados = []
-        tipo_pagamento = None  # Variável para identificar o tipo de pagamento
-
         for linha in linhas:
             colunas = linha.find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
             valores = [coluna.text.strip() for coluna in colunas]
@@ -185,15 +230,17 @@ def extrair_tabela_iptu(driver):
             if valores:
                 descricao = valores[1]  # Presumindo que a segunda coluna contém a descrição da parcela
 
-                # Determina o tipo de pagamento com base na descrição
+                # 🔹 Classifica o tipo de pagamento com base na descrição
                 if "Cota Única 20%" in descricao:
                     tipo_pagamento = "Cota Única 20%"
                 elif "Cota Única 10%" in descricao:
                     tipo_pagamento = "Cota Única 10%"
                 elif "Parcela" in descricao:
-                    tipo_pagamento = "Parcelamento Completo"
+                    tipo_pagamento = "Parcelado"
+                else:
+                    tipo_pagamento = "Outro"  # Apenas para segurança
 
-                valores.append(tipo_pagamento)  # Adiciona a categoria da parcela na última coluna
+                valores.insert(-1, tipo_pagamento)  # Adiciona a categoria da parcela antes do código do imóvel
                 dados.append(valores)
 
         print(f"✅ {len(dados)} linhas processadas após limpeza e categorização.")
@@ -208,50 +255,4 @@ def extrair_tabela_iptu(driver):
         return None  # Retorna None para garantir que o erro não impeça a execução do restante do código
 
 
-def capturar_inscricao_imobiliaria(driver):
-    """Extrai a Inscrição Imobiliária na página pós-login."""
-    try:
-        print("🔍 Extraindo Inscrição Imobiliária...")
-        
-        inscricao_elemento = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, SELECTORS["inscricao_imobiliaria"]))
-        )
-        inscricao_imobiliaria = inscricao_elemento.get_attribute("value").strip()
 
-        print(f"✅ Inscrição Imobiliária extraída: {inscricao_imobiliaria}")
-        return inscricao_imobiliaria
-
-    except Exception as e:
-        print(f"❌ Erro ao capturar Inscrição Imobiliária: {e}")
-        return None
-
-def capturar_dados_adicionais(driver):
-    """Captura Localização, Tipologia, Estrutura, Utilização e Proprietário na página pós-login."""
-    try:
-        print("🔍 Extraindo dados adicionais do imóvel...")
-
-        dados = {}
-
-        # Captura os campos de interesse
-        for key, xpath in {
-            "localizacao": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[3]/td[6]/input',
-            "tipologia": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[2]/td[4]/input',
-            "estrutura": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[4]/td[2]/input',
-            "utilizacao": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[5]/td[4]/input',
-            "proprietario": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[1]/td[2]/input'
-        }.items():
-            try:
-                elemento = WebDriverWait(driver, 5).until(
-                    EC.presence_of_element_located((By.XPATH, xpath))
-                )
-                dados[key] = elemento.get_attribute("value").strip() if elemento.get_attribute("value") else "N/A"
-            except Exception:
-                print(f"⚠️ Não foi possível capturar {key}.")
-                dados[key] = "N/A"
-
-        print(f"✅ Dados capturados: {dados}")
-        return dados
-
-    except Exception as e:
-        print(f"❌ Erro ao capturar dados adicionais: {e}")
-        return None
