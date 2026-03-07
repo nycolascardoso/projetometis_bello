@@ -1,4 +1,3 @@
-import easyocr
 import base64
 import numpy as np
 from io import BytesIO
@@ -7,24 +6,32 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from extracao_imoveis.config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS
 from datetime import datetime
 import time
-import os
-from selenium.common.exceptions import TimeoutException
 
 def iniciar_driver():
-    """Inicia o driver do Selenium."""
-    from selenium.webdriver.edge.service import Service
+    """Inicia o driver do Selenium com configura??o resiliente."""
     from selenium.webdriver.edge.options import Options
+    try:
+        options = Options()
+        options.add_argument('start-maximized')
+        # Tenta Selenium Manager (n?o requer DRIVER_PATH)
+        return webdriver.Edge(options=options)
+    except Exception as e:
+        try:
+            from selenium.webdriver.edge.service import Service
+            service = Service(executable_path=DRIVER_PATH)
+            return webdriver.Edge(service=service, options=options)
+        except Exception as e2:
+            raise e2
 
-    service = Service(executable_path=DRIVER_PATH)
-    options = Options()
-    options.add_argument("start-maximized")
-    return webdriver.Edge(service=service, options=options)
+_EASYOCR_READER = None
 
 def resolver_captcha(driver):
-    """Resolve o CAPTCHA e retorna o texto lido."""
+    """Resolve o CAPTCHA automaticamente utilizando OCR (lazy import)."""
+    global _EASYOCR_READER
     try:
         print("🟡 Buscando a imagem do CAPTCHA...")
         captcha_element = WebDriverWait(driver, 10).until(
@@ -36,18 +43,15 @@ def resolver_captcha(driver):
         captcha_bytes = base64.b64decode(captcha_base64)
         captcha_image = Image.open(BytesIO(captcha_bytes))
 
-        # Salva a imagem temporariamente para depuração
         captcha_image.save("captcha_temp.png")
         print("💾 CAPTCHA salvo como 'captcha_temp.png'")
 
-        # Carrega a imagem salva e converte para NumPy array
-        captcha_image = Image.open("captcha_temp.png").convert("L")  # Converte para escala de cinza
-        captcha_array = np.array(captcha_image)  # Converte para array NumPy
-
         # Processa a imagem com EasyOCR
-        print("🧐 Lendo CAPTCHA com OCR...")
-        reader = easyocr.Reader(["en"])
-        result = reader.readtext(captcha_array, detail=0)
+        captcha_array = np.array(captcha_image.convert('L'))
+        if _EASYOCR_READER is None:
+            import easyocr
+            _EASYOCR_READER = easyocr.Reader(['en'])
+        result = _EASYOCR_READER.readtext(captcha_array, detail=0)
 
         captcha_text = result[0] if result else ""
         print(f"🟢 CAPTCHA resolvido: {captcha_text}")
@@ -59,17 +63,16 @@ def resolver_captcha(driver):
         return ""
 
 def realizar_login(driver, cnpj_cpf, tipo_doc):
-    """Realiza o login e resolve o CAPTCHA automaticamente."""
+    """Realiza login e trata CAPTCHA automaticamente."""
     try:
         print(f"Tentando login com {cnpj_cpf} ({tipo_doc})")
         driver.get(URL_LOGIN)
         time.sleep(2)
 
         # Seleciona o tipo de documento
-        seletor = WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, SELECTORS["login_selector"]))
-        )
-        seletor.send_keys(tipo_doc)
+        ).send_keys(tipo_doc)
 
         # Insere o CNPJ/CPF
         campo = WebDriverWait(driver, 10).until(
@@ -80,31 +83,29 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
         # Resolver CAPTCHA
         captcha_text = resolver_captcha(driver)
         if not captcha_text:
-            raise Exception("Falha ao resolver CAPTCHA")
+            raise Exception("❌ Falha ao resolver CAPTCHA")
 
         # Insere o CAPTCHA resolvido
-        captcha_input = WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
-        )
-        captcha_input.send_keys(captcha_text)
+        ).send_keys(captcha_text)
         print(f"⌨️ CAPTCHA inserido: {captcha_text}")
 
-        time.sleep(3)  # Aguarda antes de enviar o formulário
+        time.sleep(3)  # Pequeno delay para garantir estabilidade
 
         # Clica no botão de login
-        botao_login = WebDriverWait(driver, 10).until(
+        WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, SELECTORS["botao_login"]))
-        )
-        botao_login.click()
+        ).click()
 
-        # Aguarda até que algum dos seguintes elementos apareça:
+        # Aguarda para verificar se houve sucesso no login ou erro
         WebDriverWait(driver, 10).until(
             lambda d: d.find_elements(By.XPATH, SELECTORS["mensagem_erro"]) or
                       d.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]) or
                       d.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"])
         )
 
-        # Verifica se há mensagem de erro
+        # Verifica se houve erro no login
         erro_elems = driver.find_elements(By.XPATH, SELECTORS["mensagem_erro"])
         if erro_elems:
             erro_text = erro_elems[0].text.strip()
@@ -112,9 +113,9 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
                 print(f"❌ Erro de login: {erro_text}")
                 raise Exception(f"Erro de login: {erro_text}")
 
-        # Verifica se o login foi bem-sucedido
+        # Determina se o login foi bem-sucedido
         if driver.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]):
-            print("🟢 Login realizado com sucesso! Tela 2 (tabela) detectada.")
+            print("🟢 Login realizado com sucesso! Tela 2 (tabela de imóveis) detectada.")
         elif driver.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"]):
             print("🟢 Login realizado com sucesso! Imóvel único detectado.")
         else:
@@ -124,27 +125,20 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
         print(f"🔴 Erro ao realizar login: {e}")
         raise
 
-
-def extrair_tabela_imoveis(driver, cnpj_cpf, aba_links, planilha, planilha_path):
+def extrair_tabela_imoveis(driver, cnpj_cpf, aba_links):
     """
-    Extrai dados da tabela de imóveis ou, se essa extração falhar, utiliza a lógica para um único imóvel.
-    
-    Os dados extraídos seguem a estrutura:
-      [CNPJ/CPF, Código do Imóvel, Inscrição Imobiliária, Logradouro, Complemento,
-       Bairro, Situação, URL do Imóvel, Status, Última Atualização]
-       
-    Essa função presume que o login já foi efetuado.
+    Extrai dados da tabela de imóveis ou, caso não encontre a tabela, tenta extrair um único imóvel.
     """
-    from selenium.common.exceptions import TimeoutException
     try:
-        # Tenta extrair os dados da tabela de imóveis (cenário de múltiplos imóveis)
         tabela = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, SELECTORS["tabela_imoveis"]))
         )
-        print("Tabela de imóveis localizada com sucesso.")
+        print("✅ Tabela de imóveis localizada.")
         linhas = tabela.find_elements(By.XPATH, SELECTORS["tabela_linhas"])
-        if not linhas or len(linhas) == 0:
-            raise Exception("Tabela encontrada, mas sem linhas.")
+
+        if not linhas:
+            raise Exception("❌ Nenhuma linha encontrada na tabela.")
+
         for linha in linhas:
             try:
                 url_imovel = linha.find_element(By.XPATH, SELECTORS["tabela_celula_link"]).get_attribute('href')
@@ -156,76 +150,33 @@ def extrair_tabela_imoveis(driver, cnpj_cpf, aba_links, planilha, planilha_path)
                 situacao = linha.find_element(By.XPATH, SELECTORS["tabela_celula_situacao"]).text.strip()
 
                 aba_links.append([
-                    cnpj_cpf,               # CNPJ/CPF
-                    codigo_imovel,          # Código do Imóvel
-                    inscricao_imobiliaria,  # Inscrição Imobiliária
-                    logradouro,             # Logradouro
-                    complemento,            # Complemento
-                    bairro,                 # Bairro
-                    situacao,               # Situação
-                    url_imovel,             # URL do Imóvel
-                    "Em progresso",         # Status
-                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Última Atualização
+                    cnpj_cpf, codigo_imovel, inscricao_imobiliaria, logradouro,
+                    complemento, bairro, situacao, url_imovel, "Em progresso",
+                    datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                 ])
-                print(f"Imóvel {codigo_imovel} extraído com sucesso.")
-            except Exception as e:
-                print(f"Erro ao extrair dados de uma linha da tabela: {e}")
-        planilha.save(planilha_path)
-        print(f"Dados da tabela de imóveis salvos para o CNPJ/CPF {cnpj_cpf}.")
-        
-    except Exception as erro_tabela:
-        # Se houver erro na extração via tabela, tenta a lógica de imóvel único
-        print(f"Erro na extração via tabela: {erro_tabela}")
-        print("Tentando a extração como imóvel único...")
+                print(f"✅ Imóvel {codigo_imovel} extraído com sucesso.")
+
+            except NoSuchElementException:
+                print("❌ Erro ao extrair dados de uma linha da tabela.")
+
+    except TimeoutException:
+        print("❌ Tabela não encontrada. Tentando extração como imóvel único...")
+
         try:
-            # Extração para imóvel único - usando get_attribute("value") para cada campo
-            elemento_codigo = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"]))
-            )
-            codigo_imovel = elemento_codigo.get_attribute("value").strip()
+            codigo_imovel = driver.find_element(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"]).get_attribute("value").strip()
+            inscricao_imobiliaria = driver.find_element(By.XPATH, SINGLE_IMOVEL_SELECTORS["inscricao_imobiliaria"]).get_attribute("value").strip()
+            logradouro = driver.find_element(By.XPATH, SINGLE_IMOVEL_SELECTORS["logradouro"]).get_attribute("value").strip()
+            complemento = driver.find_element(By.XPATH, SINGLE_IMOVEL_SELECTORS["complemento"]).get_attribute("value").strip()
+            bairro = driver.find_element(By.XPATH, SINGLE_IMOVEL_SELECTORS["bairro"]).get_attribute("value").strip()
+            situacao = driver.find_element(By.XPATH, SINGLE_IMOVEL_SELECTORS["situacao"]).get_attribute("value").strip()
 
-            elemento_inscricao = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, SINGLE_IMOVEL_SELECTORS["inscricao_imobiliaria"]))
-            )
-            inscricao_imobiliaria = elemento_inscricao.get_attribute("value").strip()
-
-            elemento_logradouro = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, SINGLE_IMOVEL_SELECTORS["logradouro"]))
-            )
-            logradouro = elemento_logradouro.get_attribute("value").strip()
-
-            elemento_complemento = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, SINGLE_IMOVEL_SELECTORS["complemento"]))
-            )
-            complemento = elemento_complemento.get_attribute("value").strip()
-
-            elemento_bairro = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, SINGLE_IMOVEL_SELECTORS["bairro"]))
-            )
-            bairro = elemento_bairro.get_attribute("value").strip()
-
-            elemento_situacao = WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, SINGLE_IMOVEL_SELECTORS["situacao"]))
-            )
-            situacao = elemento_situacao.get_attribute("value").strip()
-
-            url_imovel = driver.current_url
-
-            print("Imóvel único detectado - extraindo dados da tela.")
             aba_links.append([
-                cnpj_cpf,
-                codigo_imovel,
-                inscricao_imobiliaria,
-                logradouro,
-                complemento,
-                bairro,
-                situacao,
-                url_imovel,
-                "Em progresso",
+                cnpj_cpf, codigo_imovel, inscricao_imobiliaria, logradouro,
+                complemento, bairro, situacao, driver.current_url, "Em progresso",
                 datetime.now().strftime('%Y-%m-%d %H:%M:%S')
             ])
-            planilha.save(planilha_path)
-            print(f"Dados do imóvel único salvos para o CNPJ/CPF {cnpj_cpf}.")
-        except Exception as erro_unico:
-            print(f"Erro na extração do imóvel único: {erro_unico}")
-            raise erro_unico
+            print(f"✅ Imóvel único extraído com sucesso: {codigo_imovel}")
+
+        except NoSuchElementException:
+            print("❌ Nenhum dado encontrado para imóvel único.")
+            raise

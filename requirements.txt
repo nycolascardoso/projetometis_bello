@@ -1,0 +1,8 @@
+selenium
+openpyxl
+pillow
+numpy
+easyocr
+pytesseract
+# For faster OCR init (CPU only) install via extra index (optional):
+# pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio

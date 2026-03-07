@@ -13,7 +13,7 @@ from extracao_iptu.utils import (
     atualizar_status_iptu,
     atualizar_dados_imovel
 )
-from extracao_iptu.config import SETTINGS, SELECTORS
+from extracao_iptu.config import SETTINGS, PLANILHA_PATH, SELECTORS
 
 def main():
     # Carrega a planilha e as abas necessárias
@@ -48,10 +48,11 @@ def main():
                     print(f"🔄 Tentativa {tentativa}/{SETTINGS['max_tentativas_login']} para login com código do imóvel: {codigo_imovel}")
                     
                     # Realiza login
-                    realizar_login(driver, codigo_imovel)
+                    if not realizar_login(driver, codigo_imovel):
+                        continue  # Se falhar, tenta novamente
 
                     # Captura Inscrição Imobiliária
-                    inscricao_imobiliaria = capturar_inscricao_imobiliaria(driver)
+                    inscricao_imobiliaria = capturar_inscricao_imobiliaria(driver) or "N/A"
 
                     # Verifica se o imóvel é baldio antes de capturar os outros dados
                     ocupacao_elemento = driver.find_element("xpath", SELECTORS["ocupacao"])
@@ -80,7 +81,7 @@ def main():
                     if tentativa == SETTINGS["max_tentativas_login"]:
                         print(f"❌ Falha ao realizar login após {SETTINGS['max_tentativas_login']} tentativas. Pulando para o próximo imóvel.")
                         atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Erro de Processamento")
-                        salvar_planilha(planilha)  # Salva o estado antes de passar para o próximo imóvel
+                        salvar_planilha(planilha)
 
             if sucesso:
                 try:
@@ -95,17 +96,19 @@ def main():
                         dados_adicionais["tipologia"],
                         dados_adicionais["estrutura"],
                         dados_adicionais["utilizacao"],
-                        dados_adicionais["proprietario"]
+                        dados_adicionais["proprietario"],
+                        planilha
                     )
+                    salvar_planilha(planilha)
 
                     if not dados_iptu:
                         print(f"⚠️ Nenhum dado extraído para o imóvel {codigo_imovel}. Registrando como 'Sem Carnê IPTU'.")
                         salvar_dados_na_aba(
                             aba_banco_dados,
-                            [[inscricao_imobiliaria, "2025", "Sem Carnê IPTU", "", "", "", "", "", "", "", "", "", codigo_imovel]],
+                            ["", [inscricao_imobiliaria, "2025", "Sem Carnê IPTU", "", "", "", "", "", "", "", "", "", codigo_imovel]],
                             planilha
                         )
-                        atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Não")
+                        atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Erro de Processamento", planilha)
                         salvar_planilha(planilha)
                         continue
 
@@ -125,11 +128,10 @@ def main():
 
                     salvar_dados_na_aba(aba_banco_dados, dados_para_salvar, planilha)
 
-                    atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Sim")
-                    print(f"🟢 Dados do imóvel {codigo_imovel} salvos com sucesso!")
-
-                    # Salva a planilha a cada imóvel processado
+                    atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Sim", planilha)
                     salvar_planilha(planilha)
+
+                    print(f"🟢 Dados do imóvel {codigo_imovel} salvos com sucesso!")
 
                 except Exception as e:
                     print(f"❌ Erro ao processar código do imóvel {codigo_imovel}: {e}")
@@ -137,11 +139,19 @@ def main():
                     salvar_planilha(planilha)
 
     finally:
+        try:
+            salvar_planilha(planilha)
+            print("💾 Planilha salva com sucesso!")
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar a planilha no final: {e}")
+
         driver.quit()
         print("🛑 Driver encerrado.")
 
 if __name__ == "__main__":
     main()
+
+
 
 
 #python -m extracao_iptu.main

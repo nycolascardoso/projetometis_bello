@@ -18,16 +18,23 @@ pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tessera
 
 # Inicia o WebDriver
 def iniciar_driver():
-    """Inicia o driver do Selenium."""
-    from selenium.webdriver.edge.service import Service
+    """Inicia o driver do Selenium (Selenium Manager com fallback)."""
     from selenium.webdriver.edge.options import Options
-
-    service = Service(executable_path=DRIVER_PATH)
-    options = Options()
-    options.add_argument("start-maximized")
-    return webdriver.Edge(service=service, options=options)
+    try:
+        options = Options()
+        options.add_argument('start-maximized')
+        return webdriver.Edge(options=options)
+    except Exception:
+        try:
+            from selenium.webdriver.edge.service import Service
+            service = Service(executable_path=DRIVER_PATH)
+            return webdriver.Edge(service=service, options=options)
+        except Exception as e2:
+            raise e2
 
 # Resolve o CAPTCHA de forma otimizada
+_EASYOCR_READER = None
+
 def resolver_captcha(driver):
     """Resolve o CAPTCHA e retorna o texto lido."""
     try:
@@ -51,7 +58,10 @@ def resolver_captcha(driver):
 
         # Processa a imagem com EasyOCR
         print("🧐 Lendo CAPTCHA com OCR...")
-        reader = easyocr.Reader(["en"])
+        global _EASYOCR_READER
+        if _EASYOCR_READER is None:
+            _EASYOCR_READER = easyocr.Reader(["en"])
+        reader = _EASYOCR_READER
         result = reader.readtext(captcha_array, detail=0)
 
         captcha_text = result[0] if result else ""
@@ -174,7 +184,7 @@ def capturar_dados_adicionais(driver):
 
 # Acessa a página do Carnê IPTU
 def acessar_carne_iptu(driver):
-    """Acessa diretamente a página do Carnê IPTU."""
+    """Acessa a página do Carnê IPTU."""
     try:
         print("🔗 Acessando página do Carnê IPTU...")
         driver.get(URL_CARNE_IPTU)
@@ -186,41 +196,28 @@ def acessar_carne_iptu(driver):
         print(f"❌ Erro ao acessar Carnê IPTU: {e}")
         raise
 
+# Extrai a tabela IPTU
 def extrair_tabela_iptu(driver):
-    """Extrai a tabela de IPTU, removendo cabeçalho, totalizadores e categorizando parcelas corretamente."""
+    """Extrai a tabela de IPTU, categorizando parcelas corretamente."""
     try:
         print("📋 Extraindo tabela de IPTU...")
 
-        # Aguarda o carregamento da tabela
         tabela = WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
             EC.presence_of_element_located((By.XPATH, TABLE_SELECTORS["elemento_tabela_iptu"]))
         )
 
-        # Captura todas as linhas da tabela
         linhas = tabela.find_elements(By.XPATH, TABLE_SELECTORS["linhas_tabela_iptu"])
 
         if not linhas or len(linhas) < 2:
             print("⚠️ Nenhuma informação de carnê IPTU disponível para este imóvel.")
-            return None  # Retorna None para indicar que não há carnê
+            return None  
 
         print(f"🟢 {len(linhas)} linhas encontradas na tabela de IPTU.")
 
-        # 🔹 Remove a primeira linha se for um cabeçalho
-        primeira_linha = linhas[0].find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
-        if primeira_linha and all(coluna.text.strip().isalpha() for coluna in primeira_linha):
-            print("🗑️ Cabeçalho detectado e removido.")
-            linhas = linhas[1:]
-
-        # 🔹 Remove a última linha se for um totalizador
-        ultima_linha = linhas[-1].find_elements(By.XPATH, TABLE_SELECTORS["colunas_tabela_iptu"])
-        if ultima_linha and any("Total" in coluna.text for coluna in ultima_linha):
-            print(f"⚠️ Removendo linha de totalização: {[coluna.text for coluna in ultima_linha]}")
-            linhas = linhas[:-1]
-
-        # Se após remoções não restar nenhuma linha, retorna como vazio
-        if not linhas:
-            print("⚠️ Nenhuma linha válida restante após limpeza da tabela.")
-            return None
+        # Remove totalizadores
+        if "Total" in linhas[-1].text:
+            print(f"⚠️ Removendo linha de totalização: {linhas[-1].text}")
+            linhas.pop()
 
         dados = []
         for linha in linhas:
@@ -228,31 +225,24 @@ def extrair_tabela_iptu(driver):
             valores = [coluna.text.strip() for coluna in colunas]
 
             if valores:
-                descricao = valores[1]  # Presumindo que a segunda coluna contém a descrição da parcela
-
-                # 🔹 Classifica o tipo de pagamento com base na descrição
+                descricao = valores[1]
+                tipo_pagamento = "Parcelado"
                 if "Cota Única 20%" in descricao:
                     tipo_pagamento = "Cota Única 20%"
                 elif "Cota Única 10%" in descricao:
                     tipo_pagamento = "Cota Única 10%"
-                elif "Parcela" in descricao:
-                    tipo_pagamento = "Parcelado"
-                else:
-                    tipo_pagamento = "Outro"  # Apenas para segurança
 
-                valores.insert(-1, tipo_pagamento)  # Adiciona a categoria da parcela antes do código do imóvel
+                valores.append(tipo_pagamento)  # Adiciona a categoria da parcela
                 dados.append(valores)
 
         print(f"✅ {len(dados)} linhas processadas após limpeza e categorização.")
         return dados
 
     except TimeoutException:
-        print("⚠️ Nenhuma tabela de IPTU encontrada. Provavelmente o imóvel não tem carnê disponível.")
-        return None  # Retorna None para indicar que não há carnê IPTU para este imóvel
+        print("⚠️ Nenhuma tabela de IPTU encontrada. O imóvel pode não ter carnê disponível.")
+        return None  
 
     except Exception as e:
         print(f"❌ Erro ao extrair tabela IPTU: {e}")
-        return None  # Retorna None para garantir que o erro não impeça a execução do restante do código
-
-
+        return None  
 
