@@ -1,7 +1,15 @@
-# Caminho da planilha
-PLANILHA_PATH = 'C:/Users/ngcar/OneDrive/Documentos/Python Scripts/Projeto Metis/Banco_de_Imoveis.xlsx'
+import os
 
-# Caminho do driver
+# Pasta raiz do projeto (onde está o Banco_de_Imoveis.xlsx)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+# Caminho da planilha (relativo ao projeto)
+PLANILHA_PATH = os.path.join(BASE_DIR, 'Banco_de_Imoveis.xlsx')
+
+# Arquivo de status em tempo real (usado pelo app Streamlit)
+STATUS_PATH = os.path.join(BASE_DIR, 'runtime_status.json')
+
+# Caminho do driver (Selenium Manager gerencia automaticamente; manter para fallback)
 DRIVER_PATH = "C:/Users/ngcar/edgedriver_win64/msedgedriver.exe"
 
 # URL de login

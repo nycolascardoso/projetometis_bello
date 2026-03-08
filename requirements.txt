@@ -4,5 +4,7 @@ pillow
 numpy
 easyocr
 pytesseract
+streamlit>=1.35
+pandas
 # For faster OCR init (CPU only) install via extra index (optional):
 # pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
