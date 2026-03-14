@@ -1,4 +1,4 @@
-# Projeto Metis ? Extração de Imóveis e IPTU (Caçador)
+# Projeto Metis - Extração de Imóveis e IPTU (Caçador)
 
 ## Pré-requisitos
 - Python 3.11/3.12 com venv
