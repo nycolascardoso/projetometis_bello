@@ -1,33 +1,34 @@
 import base64
+import os
+import tempfile
 import numpy as np
 from io import BytesIO
 from PIL import Image
 from selenium import webdriver
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from extracao_imoveis.config import DRIVER_PATH, SELECTORS, URL_LOGIN, SINGLE_IMOVEL_SELECTORS
 from datetime import datetime
 import time
 
+
 def iniciar_driver():
-    """Inicia o driver do Selenium com configura??o resiliente."""
+    """Inicia o driver do Selenium com configuração resiliente."""
     from selenium.webdriver.edge.options import Options
+    options = Options()
+    options.add_argument('start-maximized')
     try:
-        options = Options()
-        options.add_argument('start-maximized')
-        # Tenta Selenium Manager (n?o requer DRIVER_PATH)
         return webdriver.Edge(options=options)
-    except Exception as e:
-        try:
-            from selenium.webdriver.edge.service import Service
-            service = Service(executable_path=DRIVER_PATH)
-            return webdriver.Edge(service=service, options=options)
-        except Exception as e2:
-            raise e2
+    except Exception:
+        from selenium.webdriver.edge.service import Service
+        service = Service(executable_path=DRIVER_PATH)
+        return webdriver.Edge(service=service, options=options)
+
 
 _EASYOCR_READER = None
+
 
 def resolver_captcha(driver):
     """Resolve o CAPTCHA automaticamente utilizando OCR (lazy import)."""
@@ -43,10 +44,10 @@ def resolver_captcha(driver):
         captcha_bytes = base64.b64decode(captcha_base64)
         captcha_image = Image.open(BytesIO(captcha_bytes))
 
-        captcha_image.save("captcha_temp.png")
-        print("💾 CAPTCHA salvo como 'captcha_temp.png'")
+        captcha_temp = os.path.join(tempfile.gettempdir(), 'metis_captcha.png')
+        captcha_image.save(captcha_temp)
+        print(f"💾 CAPTCHA salvo temporariamente em '{captcha_temp}'")
 
-        # Processa a imagem com EasyOCR
         captcha_array = np.array(captcha_image.convert('L'))
         if _EASYOCR_READER is None:
             import easyocr
@@ -56,23 +57,39 @@ def resolver_captcha(driver):
         captcha_text = result[0] if result else ""
         print(f"🟢 CAPTCHA resolvido: {captcha_text}")
 
+        try:
+            os.unlink(captcha_temp)
+        except OSError:
+            pass
+
         return captcha_text
 
     except Exception as e:
         print(f"❌ Erro ao resolver CAPTCHA: {e}")
         return ""
 
+
 def realizar_login(driver, cnpj_cpf, tipo_doc):
     """Realiza login e trata CAPTCHA automaticamente."""
     try:
         print(f"Tentando login com {cnpj_cpf} ({tipo_doc})")
         driver.get(URL_LOGIN)
+        print(f'Navegou para: {driver.current_url}')
         time.sleep(2)
 
         # Seleciona o tipo de documento
-        WebDriverWait(driver, 10).until(
+        sel_elem = WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.ID, SELECTORS["login_selector"]))
-        ).send_keys(tipo_doc)
+        )
+        try:
+            Select(sel_elem).select_by_visible_text(tipo_doc)
+        except Exception:
+            options = [o.text.strip() for o in sel_elem.find_elements(By.TAG_NAME, 'option')]
+            match = next((o for o in options if tipo_doc.lower() in o.lower()), None)
+            if match:
+                Select(sel_elem).select_by_visible_text(match)
+            else:
+                sel_elem.send_keys(tipo_doc)
 
         # Insere o CNPJ/CPF
         campo = WebDriverWait(driver, 10).until(
@@ -80,25 +97,24 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
         )
         driver.execute_script("arguments[0].value = arguments[1];", campo, cnpj_cpf)
 
-        # Resolver CAPTCHA
+        # Resolve e insere o CAPTCHA
         captcha_text = resolver_captcha(driver)
         if not captcha_text:
             raise Exception("❌ Falha ao resolver CAPTCHA")
 
-        # Insere o CAPTCHA resolvido
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
         ).send_keys(captcha_text)
         print(f"⌨️ CAPTCHA inserido: {captcha_text}")
 
-        time.sleep(3)  # Pequeno delay para garantir estabilidade
+        time.sleep(3)
 
         # Clica no botão de login
         WebDriverWait(driver, 10).until(
             EC.presence_of_element_located((By.XPATH, SELECTORS["botao_login"]))
         ).click()
 
-        # Aguarda para verificar se houve sucesso no login ou erro
+        # Aguarda resultado do login
         WebDriverWait(driver, 10).until(
             lambda d: d.find_elements(By.XPATH, SELECTORS["mensagem_erro"]) or
                       d.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]) or
@@ -113,9 +129,8 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
                 print(f"❌ Erro de login: {erro_text}")
                 raise Exception(f"Erro de login: {erro_text}")
 
-        # Determina se o login foi bem-sucedido
         if driver.find_elements(By.XPATH, SELECTORS["tabela_imoveis"]):
-            print("🟢 Login realizado com sucesso! Tela 2 (tabela de imóveis) detectada.")
+            print("🟢 Login realizado com sucesso! Tela de tabela de imóveis detectada.")
         elif driver.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"]):
             print("🟢 Login realizado com sucesso! Imóvel único detectado.")
         else:
@@ -125,9 +140,11 @@ def realizar_login(driver, cnpj_cpf, tipo_doc):
         print(f"🔴 Erro ao realizar login: {e}")
         raise
 
+
 def extrair_tabela_imoveis(driver, cnpj_cpf, aba_links):
     """
-    Extrai dados da tabela de imóveis ou, caso não encontre a tabela, tenta extrair um único imóvel.
+    Extrai dados da tabela de imóveis ou, caso não encontre a tabela,
+    tenta extrair como imóvel único.
     """
     try:
         tabela = WebDriverWait(driver, 10).until(

@@ -1,0 +1,18 @@
+# Ambiente virtual
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Arquivos temporários
+captcha_temp.png
+*_temp.xlsx
+
+# Dados sensíveis / planilhas locais
+*.xlsx
+*.csv
+
+# Claude worktrees
+.claude/

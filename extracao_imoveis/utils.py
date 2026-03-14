@@ -29,8 +29,8 @@ def atualizar_status_consultar(aba, cnpj_cpf, status):
             if row[0].value == cnpj_cpf:
                 row[1].value = status  # Atualiza o status
                 row[2].value = datetime.now().strftime('%Y-%m-%d %H:%M:%S')  # Atualiza a data/hora
-                if "Erro" not in status:
-                    row[4].value = "Não"  # Define "Processar" como "Não"
+                if status == "Finalizado":
+                    row[4].value = "Não"  # Define "Processar" como "Não" só quando concluído com sucesso
                 print(f"🔄 Status atualizado para '{status}' no CNPJ/CPF {cnpj_cpf}.")
                 return
         print(f"⚠️ CNPJ/CPF {cnpj_cpf} não encontrado na aba 'Consultar'.")
@@ -86,7 +86,12 @@ def obter_linhas_para_processamento(aba):
             cnpj_cpf = row[0]
             tipo_doc = row[3]
             processar = row[4]
-            if processar and processar.strip().lower() == "sim":
+
+            # Se tipo_doc é uma fórmula (não avaliada sem data_only), infere pelo tamanho do documento
+            if not tipo_doc or str(tipo_doc).strip().startswith('='):
+                tipo_doc = "CNPJ proprietário" if len(str(cnpj_cpf)) == 18 else "CPF proprietário"
+
+            if processar and str(processar).strip().lower() == "sim":
                 linhas_processar.append({"cnpj_cpf": cnpj_cpf, "tipo_doc": tipo_doc})
         print(f"📌 {len(linhas_processar)} linhas encontradas para processamento.")
         return linhas_processar

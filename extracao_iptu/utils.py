@@ -96,7 +96,7 @@ def atualizar_status_iptu(aba, codigo_imovel, status, planilha):
     try:
         for row in aba.iter_rows(min_row=2, values_only=False):
             if str(row[1].value) == str(codigo_imovel):
-                row[10].value = status  # Atualiza a coluna de status
+                row[11].value = status  # Atualiza a coluna "IPTU Extraído?" (L, índice 11)
                 print(f"✅ Status atualizado para '{status}' no Código do Imóvel {codigo_imovel}.")
                 salvar_planilha(planilha)  # Salva apenas se houver alteração
                 return True

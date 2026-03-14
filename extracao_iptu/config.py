@@ -1,21 +1,27 @@
-# 🔹 Caminho da planilha
-PLANILHA_PATH = "C:/Users/ngcar/OneDrive/Documentos/Python Scripts/Projeto Metis/Banco_de_Imoveis.xlsx"
+from configparser import ConfigParser
+from pathlib import Path
 
-# 🔹 Caminho do WebDriver
-DRIVER_PATH = "C:/Users/ngcar/edgedriver_win64/msedgedriver.exe"
+_cfg = ConfigParser()
+_cfg.read(Path(__file__).resolve().parents[1] / 'settings.ini', encoding='utf-8')
 
-# 🔹 URLs do sistema
-URL_LOGIN = "https://nfse1.publica.inf.br/cacador_eiptu/"
-URL_CARNE_IPTU = "https://nfse1.publica.inf.br/cacador_eiptu/jsp/portal/consultaDebitoIptu.jsp"
+# Caminho da planilha
+PLANILHA_PATH = _cfg.get('paths', 'planilha')
 
-# 🔹 Configurações gerais
+# Caminho do WebDriver (fallback manual)
+DRIVER_PATH = _cfg.get('paths', 'driver')
+
+# URLs do sistema
+URL_LOGIN = "https://tmi-apps.e-publica.net/cacador_eiptu/"
+URL_CARNE_IPTU = "https://tmi-apps.e-publica.net/cacador_eiptu/jsp/portal/consultaDebitoIptu.jsp"
+
+# Configurações gerais
 SETTINGS = {
-    "max_tentativas_login": 2,  # Máximo de tentativas de login antes de desistir
-    "max_tentativas_captcha": 2,  # Máximo de tentativas para resolver CAPTCHA
-    "timeout_padrao": 10,  # Tempo de espera do Selenium (segundos)
+    "max_tentativas_login": 2,
+    "max_tentativas_captcha": 2,
+    "timeout_padrao": 10,
 }
 
-# 🔹 Seletores para login e elementos do site
+# Seletores para login e elementos do site
 SELECTORS = {
     "login_selector": "cbLogin",
     "input_campo": '//*[@id="inscri"]',
@@ -23,8 +29,6 @@ SELECTORS = {
     "captcha_input": '//*[@id="cod"]',
     "botao_login": '//*[@id="form_index_proprietario"]/table[2]/tbody/tr/td/input[1]',
     "mensagem_erro": "/html/body/div/div[1]/div[2]/div[1]",
-
-    # 🔹 Informações do imóvel na página pós-login
     "inscricao_imobiliaria": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[2]/td[2]/input',
     "localizacao": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[3]/td[6]/input',
     "tipologia": '//*[@id="agrupador-area"]/div[2]/div[10]/div/div/table/tbody/tr[2]/td[4]/input',
@@ -34,15 +38,20 @@ SELECTORS = {
     "ocupacao": '//*[@id="agrupador-area"]/div[2]/div[6]/div/div/table/tbody/tr[4]/td[6]/input'
 }
 
-# 🔹 Seletores para imóveis individuais
+# Seletores para imóvel individual
 SINGLE_IMOVEL_SELECTORS = {
     "codigo_imovel": '//*[@id="agrupador-area"]/div[2]/div[2]/div/div/table/tbody/tr[1]/td[2]/input'
 }
 
-# 🔹 Seletores para a tabela do Carnê IPTU
+# Configurações de execução paralela
+EXECUTION = {
+    "n_workers": _cfg.getint('execution', 'n_workers', fallback=3),
+    "headless": _cfg.getboolean('execution', 'headless', fallback=True),
+}
+
+# Seletores para a tabela do Carnê IPTU
 TABLE_SELECTORS = {
-    "elemento_tabela_iptu": '//*[@id="frm_lista_debitos"]/table',  # 🟢 Renomeado para evitar conflito
+    "elemento_tabela_iptu": '//*[@id="frm_lista_debitos"]/table',
     "linhas_tabela_iptu": '//*[@id="frm_lista_debitos"]/table/tbody/tr',
     "colunas_tabela_iptu": './/td'
 }
-
