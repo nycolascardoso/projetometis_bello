@@ -16,8 +16,8 @@ URL_CARNE_IPTU = "https://tmi-apps.e-publica.net/cacador_eiptu/jsp/portal/consul
 
 # Configurações gerais
 SETTINGS = {
-    "max_tentativas_login": 2,
-    "max_tentativas_captcha": 2,
+    "max_tentativas_login": 4,    # tentativas externas de login por imóvel
+    "max_tentativas_captcha": 3,  # tentativas de OCR por login (loop interno)
     "timeout_padrao": 10,
 }
 

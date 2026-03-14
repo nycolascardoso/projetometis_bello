@@ -1,7 +1,14 @@
 from pathlib import Path
 import sys
+import ctypes
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
+
+# Impede que o Windows suspenda o sistema enquanto o script estiver rodando.
+# ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+if sys.platform == 'win32':
+    ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
 
 if __name__ == '__main__' and __package__ is None:
     sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -17,10 +24,12 @@ from extracao_iptu.utils import (
 )
 from extracao_iptu.config import SETTINGS, PLANILHA_PATH, SELECTORS, EXECUTION
 
+# ──────────────────────────────────────────────────────────────
 # Lock global para operações na planilha (compartilhada entre workers)
+# ──────────────────────────────────────────────────────────────
 _planilha_lock = threading.Lock()
 
-# Palavras-chave que identificam erro de conectividade de rede
+# Padrões que identificam erros de conectividade de rede
 _ERROS_CONEXAO = [
     "err_connection_timed_out",
     "err_name_not_resolved",
@@ -34,20 +43,94 @@ _ERROS_CONEXAO = [
 
 
 def classificar_erro(e):
-    """Retorna o status adequado com base no tipo de exceção."""
+    """Classifica a exceção como erro de conexão ou de processamento."""
     msg = str(e).lower()
-    if any(padrao in msg for padrao in _ERROS_CONEXAO):
+    if any(p in msg for p in _ERROS_CONEXAO):
         return "Erro de Conexão"
     return "Erro de Processamento"
 
 
-def processar_imovel(codigo_imovel, driver, captcha_cache, aba_link_imoveis, aba_banco_dados, planilha):
-    """Processa um único imóvel: login → extração → gravação."""
+# ──────────────────────────────────────────────────────────────
+# Rastreador de progresso
+# ──────────────────────────────────────────────────────────────
+
+class ProgressTracker:
+    """
+    Exibe progresso geral e por worker a cada INTERVALO imóveis concluídos.
+
+    Exemplo de saída:
+    ────────────────────────────────────────────────────────
+    📊  250/3171 (7.9%) | ✅ 237 OK  ❌ 13 erros | ETA: 7h18m
+        W1: 84/1057  W2: 83/1057  W3: 83/1057
+    ────────────────────────────────────────────────────────
+    """
+    INTERVALO = 10  # imprime a cada N imóveis concluídos
+
+    def __init__(self, total: int, n_workers: int):
+        self._lock = threading.Lock()
+        self.total = total
+        self.done = 0
+        self.ok = 0
+        self.erros = 0
+        self._inicio = time.time()
+        self._worker_done = {i: 0 for i in range(1, n_workers + 1)}
+        self._worker_total: dict[int, int] = {}
+
+    def set_worker_total(self, worker_id: int, total: int):
+        with self._lock:
+            self._worker_total[worker_id] = total
+
+    def update(self, worker_id: int, sucesso: bool = True):
+        with self._lock:
+            self.done += 1
+            if sucesso:
+                self.ok += 1
+            else:
+                self.erros += 1
+            self._worker_done[worker_id] = self._worker_done.get(worker_id, 0) + 1
+            if self.done % self.INTERVALO == 0 or self.done == self.total:
+                self._imprimir()
+
+    def _imprimir(self):
+        elapsed = time.time() - self._inicio
+        pct = self.done / self.total * 100 if self.total else 0
+
+        if self.done > 0 and self.done < self.total:
+            eta_sec = elapsed / self.done * (self.total - self.done)
+            h, rem = divmod(int(eta_sec), 3600)
+            m = rem // 60
+            eta_str = f"{h}h{m:02d}m"
+        elif self.done == self.total:
+            eta_str = "concluído"
+        else:
+            eta_str = "--"
+
+        workers_str = "  ".join(
+            f"W{wid}:{self._worker_done.get(wid, 0)}/{self._worker_total.get(wid, '?')}"
+            for wid in sorted(self._worker_total)
+        )
+        sep = "─" * 56
+        print(f"\n{sep}")
+        print(f"📊  {self.done}/{self.total} ({pct:.1f}%) | "
+              f"✅ {self.ok} OK  ❌ {self.erros} erros | ETA: {eta_str}")
+        if workers_str:
+            print(f"    {workers_str}")
+        print(f"{sep}\n")
+
+
+# ──────────────────────────────────────────────────────────────
+# Processamento de um imóvel
+# ──────────────────────────────────────────────────────────────
+
+def processar_imovel(codigo_imovel, driver, captcha_cache,
+                     aba_link_imoveis, aba_banco_dados, planilha,
+                     progress: ProgressTracker = None, worker_id: int = None):
+    """Login → captura de dados → extração do carnê → gravação (1 save por imóvel)."""
     sucesso = False
     inscricao_imobiliaria = "N/A"
     dados_adicionais = None
 
-    # ── Tentativas de login e extração ──────────────────────────
+    # ── Tentativas de login ──────────────────────────────────────
     for tentativa in range(1, SETTINGS["max_tentativas_login"] + 1):
         try:
             if not realizar_login(driver, codigo_imovel, captcha_cache):
@@ -70,72 +153,91 @@ def processar_imovel(codigo_imovel, driver, captcha_cache, aba_link_imoveis, aba
 
         except Exception as e:
             status_erro = classificar_erro(e)
-            print(f"⚠️  [{codigo_imovel}] Erro tentativa {tentativa} ({status_erro}): {e}")
+            print(f"⚠️  [{codigo_imovel}] Erro tentativa {tentativa}/{SETTINGS['max_tentativas_login']} "
+                  f"({status_erro}): {e}")
             if tentativa == SETTINGS["max_tentativas_login"]:
                 with _planilha_lock:
-                    atualizar_status_iptu(aba_link_imoveis, codigo_imovel, status_erro, planilha)
+                    atualizar_status_iptu(aba_link_imoveis, codigo_imovel, status_erro)
+                    salvar_planilha(planilha)
+                if progress:
+                    progress.update(worker_id, sucesso=False)
+                return
 
     if not sucesso:
+        if progress:
+            progress.update(worker_id, sucesso=False)
         return
 
-    # ── Extração e gravação ──────────────────────────────────────
+    # ── Extração do carnê IPTU ───────────────────────────────────
     try:
         dados_iptu = extrair_tabela_iptu(driver)
 
+        # Prepara dados antes de adquirir o lock
+        if dados_iptu:
+            dados_para_salvar = []
+            for linha_dados in dados_iptu:
+                descricao = linha_dados[1] if len(linha_dados) > 1 else ""
+                if "Cota Única 20%" in descricao:
+                    tipo = "Cota Única 20%"
+                elif "Cota Única 10%" in descricao:
+                    tipo = "Cota Única 10%"
+                else:
+                    tipo = "Parcelado"
+                dados_para_salvar.append([inscricao_imobiliaria] + linha_dados + [tipo, codigo_imovel])
+
+        # ── Gravação em bloco único → 1 save por imóvel ──────────
         with _planilha_lock:
             atualizar_dados_imovel(
                 aba_link_imoveis, codigo_imovel,
                 dados_adicionais["localizacao"], dados_adicionais["tipologia"],
                 dados_adicionais["estrutura"], dados_adicionais["utilizacao"],
-                dados_adicionais["proprietario"], planilha
+                dados_adicionais["proprietario"]
             )
-
-        if not dados_iptu:
-            print(f"⚠️  [{codigo_imovel}] Sem carnê IPTU — registrando.")
-            with _planilha_lock:
+            if not dados_iptu:
+                print(f"⚠️  [{codigo_imovel}] Sem carnê IPTU — registrando.")
                 salvar_dados_na_aba(
                     aba_banco_dados,
                     [[inscricao_imobiliaria, "2025", "Sem Carnê IPTU", "", "", "",
-                      "", "", "", "", "", "", codigo_imovel]],
-                    planilha
+                      "", "", "", "", "", "", codigo_imovel]]
                 )
-                atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Sem Lançamento IPTU", planilha)
-            return
-
-        dados_para_salvar = []
-        for linha_dados in dados_iptu:
-            descricao = linha_dados[1] if len(linha_dados) > 1 else ""
-            if "Cota Única 20%" in descricao:
-                tipo = "Cota Única 20%"
-            elif "Cota Única 10%" in descricao:
-                tipo = "Cota Única 10%"
+                atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Sem Lançamento IPTU")
             else:
-                tipo = "Parcelado"
-            dados_para_salvar.append([inscricao_imobiliaria] + linha_dados + [tipo, codigo_imovel])
+                salvar_dados_na_aba(aba_banco_dados, dados_para_salvar)
+                atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Sim")
+            salvar_planilha(planilha)  # único save por imóvel
 
-        with _planilha_lock:
-            salvar_dados_na_aba(aba_banco_dados, dados_para_salvar, planilha)
-            atualizar_status_iptu(aba_link_imoveis, codigo_imovel, "Sim", planilha)
-
-        print(f"🟢 [{codigo_imovel}] Dados salvos com sucesso!")
+        print(f"🟢 [{codigo_imovel}] Concluído.")
+        if progress:
+            progress.update(worker_id, sucesso=True)
 
     except Exception as e:
         status_erro = classificar_erro(e)
         print(f"❌ [{codigo_imovel}] Erro ao processar ({status_erro}): {e}")
         with _planilha_lock:
-            atualizar_status_iptu(aba_link_imoveis, codigo_imovel, status_erro, planilha)
+            atualizar_status_iptu(aba_link_imoveis, codigo_imovel, status_erro)
+            salvar_planilha(planilha)
+        if progress:
+            progress.update(worker_id, sucesso=False)
 
 
-def worker(worker_id, imoveis_chunk, planilha, aba_link_imoveis, aba_banco_dados):
-    """Worker independente: abre seu próprio browser e processa seu chunk."""
-    print(f"🚀 Worker {worker_id} iniciado — {len(imoveis_chunk)} imóveis.")
+# ──────────────────────────────────────────────────────────────
+# Worker e orquestrador principal
+# ──────────────────────────────────────────────────────────────
+
+def worker(worker_id, imoveis_chunk, planilha, aba_link_imoveis, aba_banco_dados,
+           progress: ProgressTracker):
+    """Worker independente: browser próprio, CaptchaCache próprio, processa seu chunk."""
+    total = len(imoveis_chunk)
+    progress.set_worker_total(worker_id, total)
+    print(f"🚀 Worker {worker_id} iniciado — {total} imóveis.")
     driver = iniciar_driver(headless=EXECUTION["headless"])
     captcha_cache = CaptchaCache()
     try:
         for codigo_imovel in imoveis_chunk:
             processar_imovel(
                 codigo_imovel, driver, captcha_cache,
-                aba_link_imoveis, aba_banco_dados, planilha
+                aba_link_imoveis, aba_banco_dados, planilha,
+                progress=progress, worker_id=worker_id
             )
     finally:
         driver.quit()
@@ -148,7 +250,6 @@ def main():
         planilha = carregar_planilha()
         aba_link_imoveis = planilha['Link de Imóveis']
         aba_banco_dados = planilha['Banco de Dados']
-        print("📂 Planilha carregada com sucesso.")
     except Exception as e:
         print(f"❌ Erro ao carregar a planilha: {e}")
         return
@@ -158,7 +259,8 @@ def main():
         row[1] for row in aba_link_imoveis.iter_rows(min_row=2, values_only=True)
         if len(row) >= 11 and str(row[10]).strip().lower() == "sim"
     ]
-    print(f"🔍 {len(imoveis)} imóveis selecionados para extração.")
+    total = len(imoveis)
+    print(f"🔍 {total} imóveis selecionados para extração.")
 
     if not imoveis:
         print("⚠️ Nenhum imóvel marcado como 'Sim' na coluna K de 'Link de Imóveis'.")
@@ -167,11 +269,15 @@ def main():
     # ── Divide e executa em paralelo ─────────────────────────────
     n = EXECUTION["n_workers"]
     chunks = [imoveis[i::n] for i in range(n)]
-    print(f"⚡ Iniciando {n} workers em paralelo...")
+    progress = ProgressTracker(total=total, n_workers=n)
+    print(f"⚡ Iniciando {n} workers em paralelo...\n")
 
     with ThreadPoolExecutor(max_workers=n) as executor:
         futures = [
-            executor.submit(worker, i + 1, chunks[i], planilha, aba_link_imoveis, aba_banco_dados)
+            executor.submit(
+                worker, i + 1, chunks[i], planilha,
+                aba_link_imoveis, aba_banco_dados, progress
+            )
             for i in range(n)
         ]
         for future in futures:
@@ -179,12 +285,6 @@ def main():
                 future.result()
             except Exception as e:
                 print(f"❌ Worker encerrou com exceção: {e}")
-
-    try:
-        salvar_planilha(planilha)
-        print("💾 Planilha salva com sucesso!")
-    except Exception as e:
-        print(f"⚠️ Erro ao salvar a planilha: {e}")
 
     print("✅ Extração concluída.")
 

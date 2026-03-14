@@ -1,5 +1,11 @@
 ﻿from pathlib import Path
 import sys
+import ctypes
+
+# Impede que o Windows suspenda o sistema enquanto o script estiver rodando.
+# ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED
+if sys.platform == 'win32':
+    ctypes.windll.kernel32.SetThreadExecutionState(0x80000000 | 0x00000001 | 0x00000002)
 
 if __name__ == '__main__' and __package__ is None:
     sys.path.append(str(Path(__file__).resolve().parents[1]))

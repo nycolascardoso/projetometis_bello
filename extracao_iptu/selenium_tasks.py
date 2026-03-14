@@ -116,60 +116,99 @@ def resolver_captcha(driver):
 # Login
 # ──────────────────────────────────────────────
 
+def _preencher_formulario(driver, codigo_imovel):
+    """Navega para a tela de login e preenche tipo + código do imóvel (sem CAPTCHA)."""
+    driver.get(URL_LOGIN)
+    WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+        EC.presence_of_element_located((By.ID, SELECTORS["login_selector"]))
+    ).send_keys("Cód. do imóvel")
+    WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+        EC.presence_of_element_located((By.XPATH, SELECTORS["input_campo"]))
+    ).send_keys(codigo_imovel)
+
+
+def _submeter_e_verificar(driver):
+    """
+    Preenche o campo de CAPTCHA já capturado, clica em login e verifica resultado.
+    Retorna (ok: bool, erro_text: str | None).
+    """
+    WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+        EC.element_to_be_clickable((By.XPATH, SELECTORS["botao_login"]))
+    ).click()
+    WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+        lambda d: d.find_elements(By.XPATH, SELECTORS["mensagem_erro"]) or
+                  d.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"])
+    )
+    erro_elems = driver.find_elements(By.XPATH, SELECTORS["mensagem_erro"])
+    if erro_elems and erro_elems[0].text.strip():
+        return False, erro_elems[0].text.strip()
+    return True, None
+
+
 def realizar_login(driver, codigo_imovel, captcha_cache=None):
     """
-    Realiza login no sistema.
-    - Se captcha_cache tiver >= 2 logins bem-sucedidos, reutiliza o CAPTCHA salvo.
-    - Se o CAPTCHA cacheado falhar, invalida o cache e tenta com OCR na próxima tentativa.
+    Realiza login no sistema com duas estratégias:
+
+    Cache (>= 2 logins bem-sucedidos anteriores):
+      - Tenta uma vez com o texto cacheado.
+      - Se falhar → invalida o cache → próxima tentativa externa usa OCR.
+
+    OCR (sem cache ou cache invalidado):
+      - Loop interno de até max_tentativas_captcha tentativas.
+      - Cada tentativa recarrega a página para obter um CAPTCHA novo.
+      - Só conta como tentativa externa quando todas as tentativas de OCR esgotam.
     """
     for tentativa in range(1, SETTINGS["max_tentativas_login"] + 1):
         try:
-            driver.get(URL_LOGIN)
-
-            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
-                EC.presence_of_element_located((By.ID, SELECTORS["login_selector"]))
-            ).send_keys("Cód. do imóvel")
-
-            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
-                EC.presence_of_element_located((By.XPATH, SELECTORS["input_campo"]))
-            ).send_keys(codigo_imovel)
-
-            # Decide se reutiliza cache ou resolve com OCR
+            _preencher_formulario(driver, codigo_imovel)
             usar_cache = captcha_cache is not None and captcha_cache.reusable
+
             if usar_cache:
+                # ── Caminho cache ────────────────────────────────────
                 captcha_text = captcha_cache.text
                 print(f"♻️  [{codigo_imovel}] Reutilizando CAPTCHA: {captcha_text}")
-            else:
-                captcha_text = resolver_captcha(driver)
-                if not captcha_text:
-                    raise Exception("Falha ao resolver CAPTCHA")
-
-            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
-                EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
-            ).send_keys(captcha_text)
-
-            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
-                EC.element_to_be_clickable((By.XPATH, SELECTORS["botao_login"]))
-            ).click()
-
-            WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
-                lambda d: d.find_elements(By.XPATH, SELECTORS["mensagem_erro"]) or
-                          d.find_elements(By.XPATH, SINGLE_IMOVEL_SELECTORS["codigo_imovel"])
-            )
-
-            # Verifica erro de login
-            erro_elems = driver.find_elements(By.XPATH, SELECTORS["mensagem_erro"])
-            if erro_elems and erro_elems[0].text.strip():
-                erro_text = erro_elems[0].text.strip()
-                if usar_cache:
-                    print(f"⚠️  [{codigo_imovel}] CAPTCHA cacheado inválido — invalidando e tentando com OCR.")
+                WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                    EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
+                ).send_keys(captcha_text)
+                ok, erro = _submeter_e_verificar(driver)
+                if not ok:
+                    print(f"⚠️  [{codigo_imovel}] Cache inválido ({erro}) — invalidando.")
                     captcha_cache.invalidate()
-                raise Exception(f"Erro de login: {erro_text}")
+                    raise Exception(f"CAPTCHA cacheado rejeitado: {erro}")
 
-            # Login bem-sucedido
+            else:
+                # ── Caminho OCR com loop interno ─────────────────────
+                ok = False
+                for captcha_try in range(1, SETTINGS["max_tentativas_captcha"] + 1):
+                    if captcha_try > 1:
+                        # Recarrega a página para obter CAPTCHA novo após falha
+                        _preencher_formulario(driver, codigo_imovel)
+
+                    captcha_text = resolver_captcha(driver)
+                    if not captcha_text:
+                        print(f"⚠️  [{codigo_imovel}] OCR retornou vazio "
+                              f"(captcha {captcha_try}/{SETTINGS['max_tentativas_captcha']})")
+                        continue
+
+                    WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                        EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
+                    ).send_keys(captcha_text)
+
+                    ok, erro = _submeter_e_verificar(driver)
+                    if ok:
+                        break
+                    print(f"⚠️  [{codigo_imovel}] CAPTCHA '{captcha_text}' rejeitado: {erro} "
+                          f"(captcha {captcha_try}/{SETTINGS['max_tentativas_captcha']})")
+
+                if not ok:
+                    raise Exception(
+                        f"CAPTCHA falhou após {SETTINGS['max_tentativas_captcha']} tentativas de OCR"
+                    )
+
+            # ── Login bem-sucedido ───────────────────────────────────
             if captcha_cache is not None:
                 captcha_cache.update(captcha_text)
-            print(f"🟢 [{codigo_imovel}] Login bem-sucedido (tentativa {tentativa}).")
+            print(f"🟢 [{codigo_imovel}] Login OK (tentativa {tentativa}).")
             return True
 
         except Exception as e:
