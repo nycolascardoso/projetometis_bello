@@ -1,12 +1,12 @@
-# Projeto Metis ? Extra??o de Im?veis e IPTU (Ca?ador)
+# Projeto Metis ? Extração de Imóveis e IPTU (Caçador)
 
-## Pr?-requisitos
+## Pré-requisitos
 - Python 3.11/3.12 com venv
 - Microsoft Edge instalado
 - Selenium (usa Selenium Manager por padr?o; sem path do driver)
 - EasyOCR (baixa modelos no 1? uso) e Tesseract (para fluxo IPTU)
 
-Instala??o r?pida:
+Instalação rápida:
 
 ```
 python -m venv .venv
@@ -18,22 +18,22 @@ pip install -r requirements.txt
 # Tesseract (Windows): winget install -e --id UB-Mannheim.TesseractOCR
 ```
 
-## Ordem de execu??o
-1. Im?veis (preenche URLs e c?digos)
+## Ordem de execução
+1. Imóveis (preenche URLs e códigos)
 ```
 python -m extracao_imoveis.main
 ```
-2. IPTU (usa a coluna K=Sim da aba "Link de Im?veis")
+2. IPTU (usa a coluna K=Sim da aba "Link de Imóveis")
 ```
 python -m extracao_iptu.main
 ```
 
 ## Planilha esperada (Banco_de_Imoveis.xlsx)
-- Aba "Consultar": A=CNPJ/CPF, B=Status, C=?ltima Atualiza??o, D=Tipo de Doc., E=Processar (Sim/N?o)
-- Aba "Link de Im?veis": alimentada pelo Passo 1; coluna K = "Extrair IPTU?" (Sim/N?o)
-- Aba "Banco de Dados": recebe os carn?s IPTU no Passo 2
+- Aba "Consultar": A=CNPJ/CPF, B=Status, C=última Atualiza??o, D=Tipo de Doc., E=Processar (Sim/Não)
+- Aba "Link de Imóveis": alimentada pelo Passo 1; coluna K = "Extrair IPTU?" (Sim/Não)
+- Aba "Banco de Dados": recebe os carnês IPTU no Passo 2
 
-## Observa??es
-- Na primeira execu??o o EasyOCR baixa modelos; a importa??o pode demorar.
-- O c?digo agora tenta abrir o Edge via Selenium Manager; se falhar, usa DRIVER_PATH como fallback.
-- Encerramento do navegador protegido caso o driver n?o tenha sido inicializado.
+## Observações
+- Na primeira execução o EasyOCR baixa modelos; a importação pode demorar.
+- O código agora tenta abrir o Edge via Selenium Manager; se falhar, usa DRIVER_PATH como fallback.
+- Encerramento do navegador protegido caso o driver não tenha sido inicializado.
