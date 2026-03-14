@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Projeto Metis — Automação de Extração de Imóveis e IPTU
 
 > Automação completa para extração de dados cadastrais de imóveis e carnês de IPTU do portal e-IPTU da Prefeitura de Caçador (SC), com resolução automática de CAPTCHA, execução paralela e gravação direta em planilha Excel.
@@ -46,6 +47,17 @@ O **Projeto Metis** é um robô de automação web desenvolvido em Python que l�
 ## Como Funciona
 
 O projeto opera em **dois passos sequenciais**:
+=======
+# Projeto Metis - Extração de Imóveis e IPTU (Caçador)
+
+## Pré-requisitos
+- Python 3.11/3.12 com venv
+- Microsoft Edge instalado
+- Selenium (usa Selenium Manager por padr?o; sem path do driver)
+- EasyOCR (baixa modelos no 1? uso) e Tesseract (para fluxo IPTU)
+
+Instalação rápida:
+>>>>>>> f8c16555c6756d80d1dbee64c7106334a9352e09
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -138,6 +150,7 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
+<<<<<<< HEAD
 > No CMD use: `.\.venv\Scripts\activate.bat`
 
 ### 3. Atualize o pip e instale as dependências
@@ -145,6 +158,10 @@ python -m venv .venv
 ```powershell
 python -m pip install -U pip
 pip install -r requirements.txt
+=======
+## Ordem de execução
+1. Imóveis (preenche URLs e códigos)
+>>>>>>> f8c16555c6756d80d1dbee64c7106334a9352e09
 ```
 
 ### 4. Instale o Tesseract OCR (Windows)
@@ -258,6 +275,7 @@ Cada linha representa **uma parcela de IPTU**. Colunas:
 # Execute o Passo 1
 python -m extracao_imoveis.main
 ```
+<<<<<<< HEAD
 
 O que acontece:
 1. A planilha é carregada e todas as linhas com `Processar = Sim` na aba `Consultar` são selecionadas
@@ -509,3 +527,19 @@ O OCR pode confundir caracteres similares. Isso é esperado ocasionalmente — o
 ---
 
 > Desenvolvido para automação interna de consultas ao portal e-IPTU da Prefeitura de Caçador (SC).
+=======
+2. IPTU (usa a coluna K=Sim da aba "Link de Imóveis")
+```
+python -m extracao_iptu.main
+```
+
+## Planilha esperada (Banco_de_Imoveis.xlsx)
+- Aba "Consultar": A=CNPJ/CPF, B=Status, C=última Atualiza??o, D=Tipo de Doc., E=Processar (Sim/Não)
+- Aba "Link de Imóveis": alimentada pelo Passo 1; coluna K = "Extrair IPTU?" (Sim/Não)
+- Aba "Banco de Dados": recebe os carnês IPTU no Passo 2
+
+## Observações
+- Na primeira execução o EasyOCR baixa modelos; a importação pode demorar.
+- O código agora tenta abrir o Edge via Selenium Manager; se falhar, usa DRIVER_PATH como fallback.
+- Encerramento do navegador protegido caso o driver não tenha sido inicializado.
+>>>>>>> f8c16555c6756d80d1dbee64c7106334a9352e09
