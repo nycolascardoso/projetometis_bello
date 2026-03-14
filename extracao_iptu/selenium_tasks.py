@@ -129,7 +129,7 @@ def _preencher_formulario(driver, codigo_imovel):
 
 def _submeter_e_verificar(driver):
     """
-    Preenche o campo de CAPTCHA já capturado, clica em login e verifica resultado.
+    Clica em login e verifica o resultado.
     Retorna (ok: bool, erro_text: str | None).
     """
     WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
@@ -145,17 +145,33 @@ def _submeter_e_verificar(driver):
     return True, None
 
 
+# Palavras-chave que identificam falha de CAPTCHA (vs. código não encontrado ou outro erro)
+_ERROS_CAPTCHA = ["verificação", "inválido", "captcha", "verification"]
+
+
+def _e_erro_captcha(erro_text: str) -> bool:
+    """Retorna True se o erro do site é relacionado ao CAPTCHA (e não ao código do imóvel)."""
+    if not erro_text:
+        return False
+    lower = erro_text.lower()
+    return any(p in lower for p in _ERROS_CAPTCHA)
+
+
 def realizar_login(driver, codigo_imovel, captcha_cache=None):
     """
     Realiza login no sistema com duas estratégias:
 
     Cache (>= 2 logins bem-sucedidos anteriores):
       - Tenta uma vez com o texto cacheado.
-      - Se falhar → invalida o cache → próxima tentativa externa usa OCR.
+      - Se o erro for de CAPTCHA → invalida o cache → próxima tentativa usa OCR.
+      - Se o erro NÃO for de CAPTCHA (ex: imóvel não encontrado) → falha imediata,
+        sem invalidar o cache (o texto pode ainda ser válido).
 
     OCR (sem cache ou cache invalidado):
       - Loop interno de até max_tentativas_captcha tentativas.
-      - Cada tentativa recarrega a página para obter um CAPTCHA novo.
+      - Cada retry recarrega a página para obter um CAPTCHA novo.
+      - Se o erro NÃO for de CAPTCHA → interrompe o loop interno imediatamente
+        (retentar OCR não vai resolver um código inexistente).
       - Só conta como tentativa externa quando todas as tentativas de OCR esgotam.
     """
     for tentativa in range(1, SETTINGS["max_tentativas_login"] + 1):
@@ -172,16 +188,18 @@ def realizar_login(driver, codigo_imovel, captcha_cache=None):
                 ).send_keys(captcha_text)
                 ok, erro = _submeter_e_verificar(driver)
                 if not ok:
-                    print(f"⚠️  [{codigo_imovel}] Cache inválido ({erro}) — invalidando.")
-                    captcha_cache.invalidate()
-                    raise Exception(f"CAPTCHA cacheado rejeitado: {erro}")
+                    if _e_erro_captcha(erro):
+                        print(f"⚠️  [{codigo_imovel}] Cache inválido (CAPTCHA rejeitado) — invalidando.")
+                        captcha_cache.invalidate()
+                    else:
+                        print(f"⚠️  [{codigo_imovel}] Erro não relacionado ao CAPTCHA: {erro}")
+                    raise Exception(f"Erro de login: {erro}")
 
             else:
                 # ── Caminho OCR com loop interno ─────────────────────
                 ok = False
                 for captcha_try in range(1, SETTINGS["max_tentativas_captcha"] + 1):
                     if captcha_try > 1:
-                        # Recarrega a página para obter CAPTCHA novo após falha
                         _preencher_formulario(driver, codigo_imovel)
 
                     captcha_text = resolver_captcha(driver)
@@ -197,8 +215,15 @@ def realizar_login(driver, codigo_imovel, captcha_cache=None):
                     ok, erro = _submeter_e_verificar(driver)
                     if ok:
                         break
-                    print(f"⚠️  [{codigo_imovel}] CAPTCHA '{captcha_text}' rejeitado: {erro} "
-                          f"(captcha {captcha_try}/{SETTINGS['max_tentativas_captcha']})")
+
+                    if not _e_erro_captcha(erro):
+                        # Erro do site não é de CAPTCHA (ex: imóvel não encontrado)
+                        # Retentar OCR não vai resolver — interrompe imediatamente
+                        print(f"⚠️  [{codigo_imovel}] Erro de login (não é CAPTCHA): {erro}")
+                        raise Exception(f"Erro de login: {erro}")
+
+                    print(f"⚠️  [{codigo_imovel}] CAPTCHA '{captcha_text}' rejeitado "
+                          f"({captcha_try}/{SETTINGS['max_tentativas_captcha']}) — retentando OCR.")
 
                 if not ok:
                     raise Exception(

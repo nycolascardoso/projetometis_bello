@@ -56,15 +56,17 @@ def classificar_erro(e):
 
 class ProgressTracker:
     """
-    Exibe progresso geral e por worker a cada INTERVALO imóveis concluídos.
+    Barra de progresso visual com ETA e contadores por worker.
+    Imprime a cada ciclo completo (1 ciclo = n_workers imóveis concluídos).
 
     Exemplo de saída:
-    ────────────────────────────────────────────────────────
-    📊  250/3171 (7.9%) | ✅ 237 OK  ❌ 13 erros | ETA: 7h18m
-        W1: 84/1057  W2: 83/1057  W3: 83/1057
-    ────────────────────────────────────────────────────────
+    ──────────────────────────────────────────────────────────────
+    [████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 250/3171 (7.9%)
+    ✅ 237 OK  ❌ 13 erros  |  ETA: 7h18m  |  ⏱ 0h42m decorrido
+    W1: 84/1057  W2: 83/1057  W3: 83/1057
+    ──────────────────────────────────────────────────────────────
     """
-    INTERVALO = 10  # imprime a cada N imóveis concluídos
+    _BAR_WIDTH = 40
 
     def __init__(self, total: int, n_workers: int):
         self._lock = threading.Lock()
@@ -73,6 +75,7 @@ class ProgressTracker:
         self.ok = 0
         self.erros = 0
         self._inicio = time.time()
+        self._n_workers = n_workers
         self._worker_done = {i: 0 for i in range(1, n_workers + 1)}
         self._worker_total: dict[int, int] = {}
 
@@ -88,33 +91,44 @@ class ProgressTracker:
             else:
                 self.erros += 1
             self._worker_done[worker_id] = self._worker_done.get(worker_id, 0) + 1
-            if self.done % self.INTERVALO == 0 or self.done == self.total:
+            # Imprime a cada ciclo completo (n_workers imóveis) ou ao final
+            if self.done % self._n_workers == 0 or self.done == self.total:
                 self._imprimir()
 
     def _imprimir(self):
         elapsed = time.time() - self._inicio
         pct = self.done / self.total * 100 if self.total else 0
 
+        # Barra visual
+        filled = int(pct / 100 * self._BAR_WIDTH)
+        bar = "█" * filled + "░" * (self._BAR_WIDTH - filled)
+
+        # ETA
         if self.done > 0 and self.done < self.total:
             eta_sec = elapsed / self.done * (self.total - self.done)
-            h, rem = divmod(int(eta_sec), 3600)
-            m = rem // 60
-            eta_str = f"{h}h{m:02d}m"
+            h_eta, rem = divmod(int(eta_sec), 3600)
+            eta_str = f"{h_eta}h{rem // 60:02d}m"
         elif self.done == self.total:
             eta_str = "concluído"
         else:
             eta_str = "--"
 
+        # Tempo decorrido
+        h_el, rem_el = divmod(int(elapsed), 3600)
+        elapsed_str = f"{h_el}h{rem_el // 60:02d}m"
+
+        # Workers
         workers_str = "  ".join(
             f"W{wid}:{self._worker_done.get(wid, 0)}/{self._worker_total.get(wid, '?')}"
             for wid in sorted(self._worker_total)
         )
-        sep = "─" * 56
+
+        sep = "─" * 62
         print(f"\n{sep}")
-        print(f"📊  {self.done}/{self.total} ({pct:.1f}%) | "
-              f"✅ {self.ok} OK  ❌ {self.erros} erros | ETA: {eta_str}")
+        print(f"[{bar}] {self.done}/{self.total} ({pct:.1f}%)")
+        print(f"✅ {self.ok} OK  ❌ {self.erros} erros  |  ETA: {eta_str}  |  ⏱ {elapsed_str} decorrido")
         if workers_str:
-            print(f"    {workers_str}")
+            print(f"{workers_str}")
         print(f"{sep}\n")
 
 
