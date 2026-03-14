@@ -1,8 +1,87 @@
-selenium
-openpyxl
-pillow
-numpy
-easyocr
-pytesseract
-# For faster OCR init (CPU only) install via extra index (optional):
-# pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
+# ============================================================
+#  Projeto Metis — Requirements
+#  Python 3.11 / 3.12
+#  Gerado com: pip freeze
+# ============================================================
+
+# ------------------------------------------------------------
+# Automação Web
+# ------------------------------------------------------------
+selenium==4.41.0
+attrs==25.4.0
+h11==0.16.0
+outcome==1.3.0.post0
+sniffio==1.3.1
+sortedcontainers==2.4.0
+trio==0.33.0
+trio-websocket==0.12.2
+websocket-client==1.9.0
+wsproto==1.3.2
+PySocks==1.7.1
+urllib3==2.6.3
+certifi==2026.2.25
+idna==3.11
+
+# ------------------------------------------------------------
+# Planilha Excel
+# ------------------------------------------------------------
+openpyxl==3.1.5
+et_xmlfile==2.0.0
+
+# ------------------------------------------------------------
+# OCR — Resolução de CAPTCHA
+# ------------------------------------------------------------
+easyocr==1.7.2
+pytesseract==0.3.13
+
+# Dependências do EasyOCR
+opencv-python-headless==4.13.0.92
+pillow==12.1.1
+numpy==2.4.2
+scipy==1.17.1
+scikit-image==0.26.0
+shapely==2.1.2
+pyclipper==1.4.0
+python-bidi==0.6.7
+PyYAML==6.0.3
+ImageIO==2.37.2
+tifffile==2026.3.3
+lazy-loader==0.5
+packaging==26.0
+typing_extensions==4.15.0
+
+# ------------------------------------------------------------
+# PyTorch — Backend do EasyOCR (CPU)
+# Instalação via CDN oficial (recomendado para ambientes sem GPU):
+#   pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
+# Para ambientes com GPU CUDA, consulte: https://pytorch.org/get-started/locally/
+# ------------------------------------------------------------
+torch==2.10.0
+torchvision==0.25.0
+filelock==3.25.0
+fsspec==2026.2.0
+Jinja2==3.1.6
+MarkupSafe==3.0.3
+mpmath==1.3.0
+networkx==3.6.1
+ninja==1.13.0
+sympy==1.14.0
+
+# ------------------------------------------------------------
+# Utilitários internos (stdlib — não instalar)
+# base64, configparser, concurrent.futures, datetime,
+# io, os, pathlib, tempfile, threading, time, sys
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# Tesseract OCR (binário externo — instalar separadamente)
+# Windows:  winget install -e --id UB-Mannheim.TesseractOCR
+# Linux:    sudo apt install tesseract-ocr
+# macOS:    brew install tesseract
+# ------------------------------------------------------------
+
+# ------------------------------------------------------------
+# Microsoft Edge WebDriver
+# Gerenciado automaticamente pelo Selenium Manager.
+# Fallback manual: configurar DRIVER_PATH no settings.ini
+# ------------------------------------------------------------

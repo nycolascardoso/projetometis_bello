@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Projeto Metis — Automação de Extração de Imóveis e IPTU
 
 > Automação completa para extração de dados cadastrais de imóveis e carnês de IPTU do portal e-IPTU da Prefeitura de Caçador (SC), com resolução automática de CAPTCHA, execução paralela e gravação direta em planilha Excel.
@@ -47,17 +46,6 @@ O **Projeto Metis** é um robô de automação web desenvolvido em Python que l�
 ## Como Funciona
 
 O projeto opera em **dois passos sequenciais**:
-=======
-# Projeto Metis - Extração de Imóveis e IPTU (Caçador)
-
-## Pré-requisitos
-- Python 3.11/3.12 com venv
-- Microsoft Edge instalado
-- Selenium (usa Selenium Manager por padr?o; sem path do driver)
-- EasyOCR (baixa modelos no 1? uso) e Tesseract (para fluxo IPTU)
-
-Instalação rápida:
->>>>>>> f8c16555c6756d80d1dbee64c7106334a9352e09
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -105,7 +93,7 @@ Projeto Metis/
 │
 ├── MVP/                            # Provas de conceito iniciais (histórico)
 │   ├── MVP-Metis.py                # Primeiro protótipo: extração manual para CSV
-│   └── resolver_captcha.py        # Testes isolados de OCR
+│   └── resolver_captcha.py         # Testes isolados de OCR
 │
 ├── scripts/                        # Utilitários PowerShell
 │   ├── setup.ps1                   # Cria o venv e instala dependências
@@ -115,7 +103,7 @@ Projeto Metis/
 │
 ├── Banco_de_Imoveis.xlsx           # Planilha principal (entrada e saída de dados)
 ├── settings.ini                    # Configuração centralizada (caminhos e workers)
-├── requirements.txt                # Dependências Python
+├── requirements.txt                # Dependências Python com versões fixadas
 └── .gitignore
 ```
 
@@ -127,7 +115,7 @@ Projeto Metis/
 |---|---|
 | Python | 3.11 ou 3.12 |
 | Microsoft Edge | Qualquer versão recente (Selenium Manager baixa o driver automaticamente) |
-| Tesseract OCR | Necessário para o módulo de imóveis; instalar via `winget` (ver abaixo) |
+| Tesseract OCR | Necessário para OCR de CAPTCHA; instalar via `winget` (ver abaixo) |
 | Git | Opcional, para clonar o repositório |
 
 > **Não é necessário baixar o EdgeDriver manualmente.** O Selenium Manager cuida disso automaticamente. O campo `driver` no `settings.ini` é usado apenas como fallback de emergência.
@@ -150,7 +138,6 @@ python -m venv .venv
 .\.venv\Scripts\Activate.ps1
 ```
 
-<<<<<<< HEAD
 > No CMD use: `.\.venv\Scripts\activate.bat`
 
 ### 3. Atualize o pip e instale as dependências
@@ -158,10 +145,6 @@ python -m venv .venv
 ```powershell
 python -m pip install -U pip
 pip install -r requirements.txt
-=======
-## Ordem de execução
-1. Imóveis (preenche URLs e códigos)
->>>>>>> f8c16555c6756d80d1dbee64c7106334a9352e09
 ```
 
 ### 4. Instale o Tesseract OCR (Windows)
@@ -173,6 +156,8 @@ winget install -e --id UB-Mannheim.TesseractOCR
 Ou baixe o instalador em: https://github.com/UB-Mannheim/tesseract/wiki
 
 ### 5. (Opcional) PyTorch CPU para EasyOCR mais rápido
+
+Se o PyTorch não tiver sido instalado pelo `requirements.txt` (por exemplo, em ambiente sem GPU), instale via CDN oficial:
 
 ```powershell
 pip install --index-url https://download.pytorch.org/whl/cpu torch torchvision torchaudio
@@ -275,7 +260,6 @@ Cada linha representa **uma parcela de IPTU**. Colunas:
 # Execute o Passo 1
 python -m extracao_imoveis.main
 ```
-<<<<<<< HEAD
 
 O que acontece:
 1. A planilha é carregada e todas as linhas com `Processar = Sim` na aba `Consultar` são selecionadas
@@ -497,11 +481,11 @@ Normal. O EasyOCR baixa os modelos de rede neural (~200 MB) na primeira vez. A p
 - Execute `.\scripts\diagnose.ps1` para verificar se o portal está acessível
 - Verifique se a internet está estável
 
-### `Device or resource busy` ao tentar remover o worktree `.claude/worktrees/silly-leakey`
+### `Device or resource busy` ao tentar remover diretório travado
 
 O diretório está sendo mantido por um processo ativo. Reinicie o terminal ou o computador e execute:
 ```powershell
-Remove-Item -Path ".claude\worktrees\silly-leakey" -Recurse -Force
+Remove-Item -Path "<caminho>" -Recurse -Force
 ```
 
 ### CAPTCHA resolvido incorretamente com frequência
@@ -512,34 +496,20 @@ O OCR pode confundir caracteres similares. Isso é esperado ocasionalmente — o
 
 ## Tecnologias Utilizadas
 
-| Tecnologia | Papel |
-|---|---|
-| [Python 3.11/3.12](https://www.python.org/) | Linguagem principal |
-| [Selenium](https://www.selenium.dev/) | Automação do browser Edge |
-| [openpyxl](https://openpyxl.readthedocs.io/) | Leitura e escrita de arquivos `.xlsx` |
-| [EasyOCR](https://github.com/JaidedAI/EasyOCR) | Reconhecimento de texto no CAPTCHA |
-| [Pillow](https://python-pillow.org/) | Processamento de imagem do CAPTCHA |
-| [NumPy](https://numpy.org/) | Conversão da imagem para array para o EasyOCR |
-| [ThreadPoolExecutor](https://docs.python.org/3/library/concurrent.futures.html) | Execução paralela de workers |
-| [configparser](https://docs.python.org/3/library/configparser.html) | Leitura do `settings.ini` |
-| Microsoft Edge + Selenium Manager | Browser controlado; driver gerenciado automaticamente |
+| Tecnologia | Versão | Papel |
+|---|---|---|
+| [Python](https://www.python.org/) | 3.11 / 3.12 | Linguagem principal |
+| [Selenium](https://www.selenium.dev/) | 4.41.0 | Automação do browser Edge |
+| [openpyxl](https://openpyxl.readthedocs.io/) | 3.1.5 | Leitura e escrita de arquivos `.xlsx` |
+| [EasyOCR](https://github.com/JaidedAI/EasyOCR) | 1.7.2 | Reconhecimento de texto no CAPTCHA |
+| [Pillow](https://python-pillow.org/) | 12.1.1 | Processamento de imagem do CAPTCHA |
+| [NumPy](https://numpy.org/) | 2.4.2 | Conversão da imagem para array |
+| [PyTorch](https://pytorch.org/) | 2.10.0 | Backend de inferência do EasyOCR |
+| [OpenCV](https://opencv.org/) | 4.13.0 | Pré-processamento de imagem (EasyOCR) |
+| [ThreadPoolExecutor](https://docs.python.org/3/library/concurrent.futures.html) | stdlib | Execução paralela de workers |
+| [configparser](https://docs.python.org/3/library/configparser.html) | stdlib | Leitura do `settings.ini` |
+| Microsoft Edge + Selenium Manager | — | Browser controlado; driver gerenciado automaticamente |
 
 ---
 
 > Desenvolvido para automação interna de consultas ao portal e-IPTU da Prefeitura de Caçador (SC).
-=======
-2. IPTU (usa a coluna K=Sim da aba "Link de Imóveis")
-```
-python -m extracao_iptu.main
-```
-
-## Planilha esperada (Banco_de_Imoveis.xlsx)
-- Aba "Consultar": A=CNPJ/CPF, B=Status, C=última Atualiza??o, D=Tipo de Doc., E=Processar (Sim/Não)
-- Aba "Link de Imóveis": alimentada pelo Passo 1; coluna K = "Extrair IPTU?" (Sim/Não)
-- Aba "Banco de Dados": recebe os carnês IPTU no Passo 2
-
-## Observações
-- Na primeira execução o EasyOCR baixa modelos; a importação pode demorar.
-- O código agora tenta abrir o Edge via Selenium Manager; se falhar, usa DRIVER_PATH como fallback.
-- Encerramento do navegador protegido caso o driver não tenha sido inicializado.
->>>>>>> f8c16555c6756d80d1dbee64c7106334a9352e09
