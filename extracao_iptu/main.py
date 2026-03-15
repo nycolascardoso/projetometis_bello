@@ -147,7 +147,7 @@ def processar_imovel(codigo_imovel, driver, captcha_cache,
     # ── Tentativas de login ──────────────────────────────────────
     for tentativa in range(1, SETTINGS["max_tentativas_login"] + 1):
         try:
-            if not realizar_login(driver, codigo_imovel, captcha_cache):
+            if not realizar_login(driver, codigo_imovel, captcha_cache, worker_id=worker_id):
                 continue
 
             inscricao_imobiliaria = capturar_inscricao_imobiliaria(driver) or "N/A"

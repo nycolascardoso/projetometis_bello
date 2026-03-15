@@ -148,6 +148,46 @@ def _submeter_e_verificar(driver):
 # Palavras-chave que identificam falha de CAPTCHA (vs. código não encontrado ou outro erro)
 _ERROS_CAPTCHA = ["verificação", "inválido", "captcha", "verification"]
 
+# Lock global: garante que apenas um worker por vez solicite input humano
+_human_input_lock = threading.Lock()
+
+
+def resolver_captcha_humano(driver, worker_id=None):
+    """
+    Fallback humano: quando o OCR falha repetidamente, abre a imagem do CAPTCHA
+    com o visualizador padrão do sistema e solicita que o usuário digite o texto.
+    Serializado por lock — só um worker pede input de cada vez.
+    Retorna o texto digitado, ou "" se o usuário pressionar Enter sem digitar.
+    """
+    try:
+        captcha_element = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_image"]))
+        )
+        captcha_base64 = captcha_element.get_attribute("src").split(",")[-1]
+        captcha_bytes = base64.b64decode(captcha_base64)
+        captcha_image = Image.open(BytesIO(captcha_bytes))
+
+        import os
+        img_path = os.path.join(
+            tempfile.gettempdir(),
+            f"metis_captcha_humano_w{worker_id or 0}.png"
+        )
+        captcha_image.save(img_path)
+
+        with _human_input_lock:
+            os.startfile(img_path)          # abre no visualizador padrão do Windows
+            prefixo = f"[W{worker_id}] " if worker_id else ""
+            captcha_text = input(
+                f"\n👁️  {prefixo}OCR falhou. Imagem aberta em: {img_path}\n"
+                f"   Digite o CAPTCHA (ou Enter para pular este imóvel): "
+            ).strip()
+
+        return captcha_text
+
+    except Exception as e:
+        print(f"❌ Erro ao solicitar CAPTCHA humano: {e}")
+        return ""
+
 
 def _e_erro_captcha(erro_text: str) -> bool:
     """Retorna True se o erro do site é relacionado ao CAPTCHA (e não ao código do imóvel)."""
@@ -157,22 +197,23 @@ def _e_erro_captcha(erro_text: str) -> bool:
     return any(p in lower for p in _ERROS_CAPTCHA)
 
 
-def realizar_login(driver, codigo_imovel, captcha_cache=None):
+def realizar_login(driver, codigo_imovel, captcha_cache=None, worker_id=None):
     """
-    Realiza login no sistema com duas estratégias:
+    Realiza login no sistema com três estratégias em cascata:
 
-    Cache (>= 2 logins bem-sucedidos anteriores):
-      - Tenta uma vez com o texto cacheado.
-      - Se o erro for de CAPTCHA → invalida o cache → próxima tentativa usa OCR.
-      - Se o erro NÃO for de CAPTCHA (ex: imóvel não encontrado) → falha imediata,
-        sem invalidar o cache (o texto pode ainda ser válido).
+    1. Cache (>= 2 logins bem-sucedidos anteriores):
+       - Tenta uma vez com o texto cacheado.
+       - Erro de CAPTCHA → invalida cache → próxima tentativa usa OCR.
+       - Outro erro (ex: imóvel não encontrado) → falha imediata sem invalidar cache.
 
-    OCR (sem cache ou cache invalidado):
-      - Loop interno de até max_tentativas_captcha tentativas.
-      - Cada retry recarrega a página para obter um CAPTCHA novo.
-      - Se o erro NÃO for de CAPTCHA → interrompe o loop interno imediatamente
-        (retentar OCR não vai resolver um código inexistente).
-      - Só conta como tentativa externa quando todas as tentativas de OCR esgotam.
+    2. OCR automático (loop interno de até max_tentativas_captcha):
+       - Recarrega a página a cada retry para obter CAPTCHA novo.
+       - Erro não relacionado ao CAPTCHA → interrompe imediatamente (não adianta retentar).
+
+    3. Fallback humano (após todas as tentativas de OCR falharem):
+       - Abre a imagem do CAPTCHA no visualizador padrão do Windows.
+       - Solicita input manual do operador que está supervisionando.
+       - Se o operador deixar em branco → imóvel é pulado.
     """
     for tentativa in range(1, SETTINGS["max_tentativas_login"] + 1):
         try:
@@ -226,9 +267,18 @@ def realizar_login(driver, codigo_imovel, captcha_cache=None):
                           f"({captcha_try}/{SETTINGS['max_tentativas_captcha']}) — retentando OCR.")
 
                 if not ok:
-                    raise Exception(
-                        f"CAPTCHA falhou após {SETTINGS['max_tentativas_captcha']} tentativas de OCR"
-                    )
+                    # ── Fallback humano ──────────────────────────────
+                    print(f"🔍 [{codigo_imovel}] OCR esgotado — solicitando CAPTCHA ao operador.")
+                    captcha_text = resolver_captcha_humano(driver, worker_id)
+                    if not captcha_text:
+                        raise Exception("Operador pulou o imóvel (CAPTCHA em branco).")
+                    _preencher_formulario(driver, codigo_imovel)
+                    WebDriverWait(driver, SETTINGS["timeout_padrao"]).until(
+                        EC.presence_of_element_located((By.XPATH, SELECTORS["captcha_input"]))
+                    ).send_keys(captcha_text)
+                    ok, erro = _submeter_e_verificar(driver)
+                    if not ok:
+                        raise Exception(f"CAPTCHA humano também rejeitado: {erro}")
 
             # ── Login bem-sucedido ───────────────────────────────────
             if captcha_cache is not None:

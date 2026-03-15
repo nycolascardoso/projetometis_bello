@@ -40,12 +40,22 @@ def salvar_planilha(planilha):
         print(f"❌ Erro ao salvar a planilha: {e}")
 
 
+_STATUS_CONCLUIDO = {"Sim", "Sem Lançamento IPTU"}
+
+
 def atualizar_status_iptu(aba, codigo_imovel, status):
-    """Atualiza a coluna 'IPTU Extraído?' (L) para o imóvel indicado. Não salva — salve após chamar."""
+    """
+    Atualiza a coluna L ('IPTU Extraído?') para o imóvel indicado.
+    Se o status for de conclusão bem-sucedida, também marca K ('Extrair IPTU?') como 'Não'
+    para que o imóvel não seja reprocessado em execuções futuras.
+    Não salva — salve após chamar.
+    """
     try:
         for row in aba.iter_rows(min_row=2, values_only=False):
             if str(row[1].value) == str(codigo_imovel):
-                row[11].value = status
+                row[11].value = status                      # col L: IPTU Extraído?
+                if status in _STATUS_CONCLUIDO:
+                    row[10].value = "Não"                   # col K: Extrair IPTU? → concluído
                 return True
         print(f"⚠️ Código do imóvel {codigo_imovel} não encontrado na aba 'Link de Imóveis'.")
         return False
