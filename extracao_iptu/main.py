@@ -16,7 +16,7 @@ if __name__ == '__main__' and __package__ is None:
 from extracao_iptu.selenium_tasks import (
     iniciar_driver, realizar_login, acessar_carne_iptu,
     extrair_tabela_iptu, capturar_inscricao_imobiliaria,
-    capturar_dados_adicionais, CaptchaCache
+    capturar_dados_adicionais, CaptchaCache, _pause_gate
 )
 from extracao_iptu.utils import (
     carregar_planilha, salvar_planilha, salvar_dados_na_aba,
@@ -248,6 +248,7 @@ def worker(worker_id, imoveis_chunk, planilha, aba_link_imoveis, aba_banco_dados
     captcha_cache = CaptchaCache()
     try:
         for codigo_imovel in imoveis_chunk:
+            _pause_gate.wait()  # aguarda se outro worker está pedindo CAPTCHA humano
             processar_imovel(
                 codigo_imovel, driver, captcha_cache,
                 aba_link_imoveis, aba_banco_dados, planilha,

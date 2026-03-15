@@ -151,6 +151,10 @@ _ERROS_CAPTCHA = ["verificação", "inválido", "captcha", "verification"]
 # Lock global: garante que apenas um worker por vez solicite input humano
 _human_input_lock = threading.Lock()
 
+# Pause gate: setado = workers rodando; limpo = workers pausam entre imóveis
+_pause_gate = threading.Event()
+_pause_gate.set()
+
 
 def resolver_captcha_humano(driver, worker_id=None):
     """
@@ -175,12 +179,16 @@ def resolver_captcha_humano(driver, worker_id=None):
         captcha_image.save(img_path)
 
         with _human_input_lock:
-            os.startfile(img_path)          # abre no visualizador padrão do Windows
-            prefixo = f"[W{worker_id}] " if worker_id else ""
-            captcha_text = input(
-                f"\n👁️  {prefixo}OCR falhou. Imagem aberta em: {img_path}\n"
-                f"   Digite o CAPTCHA (ou Enter para pular este imóvel): "
-            ).strip()
+            _pause_gate.clear()  # pausa todos os outros workers entre imóveis
+            try:
+                os.startfile(img_path)          # abre no visualizador padrão do Windows
+                prefixo = f"[W{worker_id}] " if worker_id else ""
+                captcha_text = input(
+                    f"\n👁️  {prefixo}OCR falhou. Imagem aberta em: {img_path}\n"
+                    f"   Digite o CAPTCHA (ou Enter para pular este imóvel): "
+                ).strip()
+            finally:
+                _pause_gate.set()  # libera os outros workers
 
         return captcha_text
 
